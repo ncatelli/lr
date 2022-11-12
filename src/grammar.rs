@@ -1,7 +1,7 @@
 use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BuiltInTokens {
+pub(crate) enum BuiltInTokens {
     Epsilon,
     EOF,
     EndL,
@@ -12,7 +12,7 @@ enum BuiltInTokens {
 }
 
 impl BuiltInTokens {
-    fn as_token(&self) -> &'static str {
+    pub(crate) fn as_token(&self) -> &'static str {
         match self {
             BuiltInTokens::Epsilon => "<epsilon>",
             BuiltInTokens::EOF => "<$>",
@@ -28,7 +28,13 @@ impl BuiltInTokens {
 type ElementId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SymbolOrTokenRef {
+pub(crate) enum SymbolOrToken<'a> {
+    Symbol(Symbol<'a>),
+    Token(Token<'a>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SymbolOrTokenRef {
     Symbol(ElementId),
     Token(ElementId),
 }
@@ -43,9 +49,9 @@ impl std::fmt::Display for SymbolOrTokenRef {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Rule {
-    lhs: ElementId,
-    rhs: Vec<SymbolOrTokenRef>,
+pub(crate) struct Rule {
+    pub lhs: ElementId,
+    pub rhs: Vec<SymbolOrTokenRef>,
 }
 
 impl Rule {
@@ -87,6 +93,12 @@ impl<'a> std::fmt::Display for Symbol<'a> {
 /// A wrapper type for tokens borrowed from the grammar table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Token<'a>(&'a str);
+
+impl<'a> Token<'a> {
+    pub(crate) fn new(token_id: &'a str) -> Self {
+        Self(token_id)
+    }
+}
 
 impl<'a> AsRef<str> for Token<'a> {
     fn as_ref(&self) -> &str {
@@ -141,6 +153,10 @@ impl GrammarTable {
 
     pub(crate) fn tokens(&self) -> TokenIterator {
         TokenIterator::new(self)
+    }
+
+    pub(crate) fn rules(&self) -> impl Iterator<Item = &Rule> {
+        self.rules.iter()
     }
 }
 
