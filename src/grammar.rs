@@ -84,6 +84,22 @@ impl<'a> std::fmt::Display for Symbol<'a> {
     }
 }
 
+/// A wrapper type for tokens borrowed from the grammar table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Token<'a>(&'a str);
+
+impl<'a> AsRef<str> for Token<'a> {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl<'a> std::fmt::Display for Token<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
+    }
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct GrammarTable {
     symbols: HashMap<String, usize>,
@@ -119,8 +135,12 @@ impl GrammarTable {
         self.rules.push(rule);
     }
 
-    pub(crate) fn symbol_iter(&self) -> SymbolIterator {
+    pub(crate) fn symbols(&self) -> SymbolIterator {
         SymbolIterator::new(self)
+    }
+
+    pub(crate) fn tokens(&self) -> TokenIterator {
+        TokenIterator::new(self)
     }
 }
 
@@ -129,22 +149,16 @@ impl std::fmt::Display for GrammarTable {
         let header = "Grammar Table
 -------------";
 
-        let symbols = {
-            let mut symbols = self.symbols.iter().collect::<Vec<_>>();
-            symbols.sort_by(|(_, a), (_, b)| a.cmp(b));
-            symbols
-                .into_iter()
-                .map(|(symbol, id)| format!("{}. '{}'\n", id, symbol))
-                .collect::<String>()
-        };
-        let tokens = {
-            let mut tokens = self.tokens.iter().collect::<Vec<_>>();
-            tokens.sort_by(|(_, a), (_, b)| a.cmp(b));
-            tokens
-                .into_iter()
-                .map(|(token, id)| format!("{}. '{}'\n", id, token))
-                .collect::<String>()
-        };
+        let symbols = self
+            .symbols()
+            .enumerate()
+            .map(|(id, symbol)| format!("{}. '{}'\n", id + 1, symbol))
+            .collect::<String>();
+        let tokens = self
+            .tokens()
+            .enumerate()
+            .map(|(id, token)| format!("{}. '{}'\n", id + 1, token))
+            .collect::<String>();
 
         let rules = self
             .rules
@@ -188,6 +202,34 @@ impl<'a> Iterator for SymbolIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.symbols.pop().map(Symbol)
+    }
+}
+
+pub(crate) struct TokenIterator<'a> {
+    tokens: Vec<&'a str>,
+}
+
+impl<'a> TokenIterator<'a> {
+    fn new(grammar_table: &'a GrammarTable) -> Self {
+        let mut values = grammar_table
+            .tokens
+            .iter()
+            .map(|(key, value)| (key.as_str(), value))
+            .collect::<Vec<_>>();
+        // reverse the order so first rule pops off the back first.
+        values.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+        Self {
+            tokens: values.into_iter().map(|(key, _)| key).collect(),
+        }
+    }
+}
+
+impl<'a> Iterator for TokenIterator<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.tokens.pop().map(Token)
     }
 }
 
@@ -440,10 +482,34 @@ mod tests {
         assert!(res.is_ok());
         let grammar_table = res.unwrap();
 
-        let mut symbol_iter = grammar_table.symbol_iter();
+        let mut symbol_iter = grammar_table.symbols();
 
         assert_eq!(Some(Symbol("<expr>")), symbol_iter.next());
         assert_eq!(Some(Symbol("<addition>")), symbol_iter.next());
         assert_eq!(None, symbol_iter.next());
+    }
+
+    #[test]
+    fn should_iterate_tokens_in_order() {
+        let res = load_grammar(
+            "
+<expr> ::= ( <expr> )
+<expr> ::= <addition>
+<addition> ::= <expr> + <expr>  
+        ",
+        );
+
+        assert!(res.is_ok());
+        let grammar_table = res.unwrap();
+
+        let mut token_iter = grammar_table
+            .tokens()
+            // strip out the builtins for the sake of testing.
+            .filter(|token| !token.0.starts_with('<'));
+
+        assert_eq!(Some(Token("(")), token_iter.next());
+        assert_eq!(Some(Token(")")), token_iter.next());
+        assert_eq!(Some(Token("+")), token_iter.next());
+        assert_eq!(None, token_iter.next());
     }
 }
