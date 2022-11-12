@@ -350,15 +350,6 @@ mod tests {
 <parens> ::= <parens> ( )
 <parens> ::= <parens> ( <parens> )
 <parens> ::= ( ) <parens>
-";
-
-    const TEST_GRAMMAR_WITH_CONFLICT: &str = "
-; a comment
-<parens> ::= ( <parens> )
-<parens> ::= ( )
-<parens> ::= <parens> ( )
-<parens> ::= <parens> ( <parens> )
-<parens> ::= ( ) <parens>
 <parens> ::= ( <parens> ) <parens>
 ";
 
@@ -374,22 +365,6 @@ mod tests {
         assert_eq!(1, grammar_table.symbols.len());
         assert_eq!(9, grammar_table.tokens.len());
 
-        assert_eq!(6, grammar_table.rules.len());
-    }
-
-    #[test]
-    #[ignore = "unimplemented"]
-    fn should_strip_conflicting_rules_from_grammar() {
-        let grammar_table = load_grammar(TEST_GRAMMAR_WITH_CONFLICT);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
-
-        assert_eq!(1, grammar_table.symbols.len());
-        assert_eq!(9, grammar_table.tokens.len());
-
-        assert_eq!(6, grammar_table.rules.len());
+        assert_eq!(7, grammar_table.rules.len());
     }
 }
