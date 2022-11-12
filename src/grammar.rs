@@ -68,7 +68,7 @@ impl std::fmt::Display for Rule {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
@@ -76,23 +76,6 @@ pub(crate) struct GrammarTable {
 }
 
 impl GrammarTable {
-    fn new(symbols: Vec<String>, tokens: Vec<String>, rules: Vec<Rule>) -> Self {
-        let symbol_iter = symbols
-            .into_iter()
-            .enumerate()
-            .map(|(idx, symbol)| (symbol, idx + 1));
-        let token_iter = tokens
-            .into_iter()
-            .enumerate()
-            .map(|(idx, tok)| (tok, idx + 1));
-
-        Self {
-            symbols: symbol_iter.collect(),
-            tokens: token_iter.collect(),
-            rules,
-        }
-    }
-
     /// Adds a symbol to the table, returning its index. If the symbol already
     /// exists, the index to the previously added symbol is returned.
     fn add_symbol_mut<S: AsRef<str>>(&mut self, symbol: S) -> usize {
@@ -164,7 +147,6 @@ impl std::fmt::Display for GrammarTable {
 pub enum GrammarLoadErrorKind {
     InvalidRule,
     ConflictingRule,
-    Other,
 }
 
 impl std::fmt::Display for GrammarLoadErrorKind {
@@ -172,7 +154,6 @@ impl std::fmt::Display for GrammarLoadErrorKind {
         match self {
             Self::InvalidRule => write!(f, "provided rule is invalid",),
             Self::ConflictingRule => write!(f, "provided rule conflicts with existing rule",),
-            Self::Other => write!(f, "undefined load error"),
         }
     }
 }
@@ -364,7 +345,37 @@ mod tests {
 
         assert_eq!(1, grammar_table.symbols.len());
         assert_eq!(9, grammar_table.tokens.len());
-
         assert_eq!(7, grammar_table.rules.len());
+    }
+
+    #[test]
+    fn should_error_on_invalid_rule() {
+        let res = load_grammar(
+            "
+<expr> ::= ( <expr> )
+<expr> ::=  abcd
+        ",
+        );
+
+        assert_eq!(
+            Err(GrammarLoadErrorKind::InvalidRule),
+            res.map_err(|e| e.kind)
+        );
+    }
+
+    #[test]
+    fn should_error_on_conflicting_rule() {
+        let res = load_grammar(
+            "
+<expr> ::= ( <expr> )
+<expr> ::= ( )
+<expr> ::= ( ) 
+        ",
+        );
+
+        assert_eq!(
+            Err(GrammarLoadErrorKind::ConflictingRule),
+            res.map_err(|e| e.kind)
+        );
     }
 }
