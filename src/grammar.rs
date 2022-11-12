@@ -69,7 +69,7 @@ impl std::fmt::Display for Rule {
 }
 
 #[derive(Debug, Default)]
-struct GrammarTable {
+pub(crate) struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     rules: Vec<Rule>,
@@ -207,7 +207,7 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
+pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
     let mut grammar_table = GrammarTable::default();
 
     // initial table
