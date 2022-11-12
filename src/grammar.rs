@@ -68,6 +68,22 @@ impl std::fmt::Display for Rule {
     }
 }
 
+/// A wrapper type for symbols borrowed from the grammar table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Symbol<'a>(&'a str);
+
+impl<'a> AsRef<str> for Symbol<'a> {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl<'a> std::fmt::Display for Symbol<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
+    }
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct GrammarTable {
     symbols: HashMap<String, usize>,
@@ -101,6 +117,10 @@ impl GrammarTable {
 
     fn add_rule_mut(&mut self, rule: Rule) {
         self.rules.push(rule);
+    }
+
+    pub(crate) fn symbol_iter(&self) -> SymbolIterator {
+        SymbolIterator::new(self)
     }
 }
 
@@ -140,6 +160,34 @@ impl std::fmt::Display for GrammarTable {
             "{}\nSYMBOLS\n{}\nTOKENS\n{}\nRULES\n{}",
             header, symbols, tokens, rules
         )
+    }
+}
+
+pub(crate) struct SymbolIterator<'a> {
+    symbols: Vec<&'a str>,
+}
+
+impl<'a> SymbolIterator<'a> {
+    fn new(grammar_table: &'a GrammarTable) -> Self {
+        let mut values = grammar_table
+            .symbols
+            .iter()
+            .map(|(key, value)| (key.as_str(), value))
+            .collect::<Vec<_>>();
+        // reverse the order so first rule pops off the back first.
+        values.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+        Self {
+            symbols: values.into_iter().map(|(key, _)| key).collect(),
+        }
+    }
+}
+
+impl<'a> Iterator for SymbolIterator<'a> {
+    type Item = Symbol<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.symbols.pop().map(Symbol)
     }
 }
 
@@ -377,5 +425,25 @@ mod tests {
             Err(GrammarLoadErrorKind::ConflictingRule),
             res.map_err(|e| e.kind)
         );
+    }
+
+    #[test]
+    fn should_iterate_symbols_in_order() {
+        let res = load_grammar(
+            "
+<expr> ::= ( <expr> )
+<expr> ::= <addition>
+<addition> ::= <expr> + <expr>  
+        ",
+        );
+
+        assert!(res.is_ok());
+        let grammar_table = res.unwrap();
+
+        let mut symbol_iter = grammar_table.symbol_iter();
+
+        assert_eq!(Some(Symbol("<expr>")), symbol_iter.next());
+        assert_eq!(Some(Symbol("<addition>")), symbol_iter.next());
+        assert_eq!(None, symbol_iter.next());
     }
 }
