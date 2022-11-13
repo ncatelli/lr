@@ -49,18 +49,18 @@ impl std::fmt::Display for SymbolOrTokenRef {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Rule {
+pub(crate) struct RuleRef {
     pub lhs: ElementId,
     pub rhs: Vec<SymbolOrTokenRef>,
 }
 
-impl Rule {
+impl RuleRef {
     fn new(lhs: ElementId, rhs: Vec<SymbolOrTokenRef>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl std::fmt::Display for Rule {
+impl std::fmt::Display for RuleRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let lhs = format!("S{}", self.lhs);
         let rhs = self
@@ -75,7 +75,7 @@ impl std::fmt::Display for Rule {
 }
 
 /// A wrapper type for symbols borrowed from the grammar table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Symbol<'a>(&'a str);
 
 impl<'a> AsRef<str> for Symbol<'a> {
@@ -91,7 +91,7 @@ impl<'a> std::fmt::Display for Symbol<'a> {
 }
 
 /// A wrapper type for tokens borrowed from the grammar table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Token<'a>(&'a str);
 
 impl<'a> Token<'a> {
@@ -116,7 +116,7 @@ impl<'a> std::fmt::Display for Token<'a> {
 pub(crate) struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
-    rules: Vec<Rule>,
+    rules: Vec<RuleRef>,
 }
 
 impl GrammarTable {
@@ -143,7 +143,7 @@ impl GrammarTable {
         self.tokens.get(token).copied().unwrap()
     }
 
-    fn add_rule_mut(&mut self, rule: Rule) {
+    fn add_rule_mut(&mut self, rule: RuleRef) {
         self.rules.push(rule);
     }
 
@@ -155,7 +155,7 @@ impl GrammarTable {
         TokenIterator::new(self)
     }
 
-    pub(crate) fn rules(&self) -> impl Iterator<Item = &Rule> {
+    pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
         self.rules.iter()
     }
 }
@@ -299,7 +299,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
 
     // initial table
     let root_rule_idx = 0;
-    let root_rule = Rule::new(root_rule_idx, vec![]);
+    let root_rule = RuleRef::new(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
 
     // add default tokens
@@ -367,7 +367,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         })?;
 
         let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
-        let mut rule = Rule::new(rule_id, vec![]);
+        let mut rule = RuleRef::new(rule_id, vec![]);
 
         // add tokens and fill the rule.
         for elem in rhs {

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::grammar::*;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,15 +45,43 @@ impl std::fmt::Display for ParserGenError {
     }
 }
 
-pub(crate) struct LrParser {}
+pub struct LrParser;
 
-fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> Vec<Symbol> {
+fn build_first_set<'a>(
+    grammar_table: &'a GrammarTable,
+    nullable_non_terminals: HashSet<Symbol>,
+) -> Vec<Symbol<'a>> {
+    let symbols = grammar_table.symbols().collect::<Vec<_>>();
+    let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let mut first_set = vec![vec![false; tokens.len()]; symbols.len()];
+
+    let mut done = false;
+    while !done {
+        // assume done unless a change happens.
+        done = true;
+        for rule in grammar_table.rules() {
+            let lhs_id = rule.lhs;
+            let lhs = symbols[lhs_id];
+            for rhs in &rule.rhs {
+                match rhs {
+                    SymbolOrTokenRef::Symbol(_) => todo!(),
+                    SymbolOrTokenRef::Token(idx) => {
+                        todo!()
+                    }
+                }
+            }
+        }
+    }
+
+    todo!()
+}
+
+fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Symbol> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut nullable_nonterminal_productions = vec![];
 
     let mut done = false;
-
     while !done {
         // assume done unless a change happens.
         done = true;
@@ -87,10 +117,12 @@ fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> Vec<Symbol
         }
     }
 
-    nullable_nonterminal_productions
+    nullable_nonterminal_productions.into_iter().collect()
 }
 
 /// Build a LR(1) parser from a given grammar.
 pub(crate) fn build_lr_parser(grammar_table: &GrammarTable) -> Result<LrParser, ParserGenError> {
+    let _nullable_nonterminal_productions = find_nullable_nonterminals(grammar_table);
+
     todo!()
 }
