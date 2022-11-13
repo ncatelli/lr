@@ -1,7 +1,7 @@
 use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltInTokens {
+pub(crate) enum BuiltinTokens {
     Epsilon,
     EOF,
     EndL,
@@ -11,16 +11,16 @@ pub(crate) enum BuiltInTokens {
     Identifier,
 }
 
-impl BuiltInTokens {
+impl BuiltinTokens {
     pub(crate) fn as_token(&self) -> &'static str {
         match self {
-            BuiltInTokens::Epsilon => "<epsilon>",
-            BuiltInTokens::EOF => "<$>",
-            BuiltInTokens::EndL => "<endl>",
-            BuiltInTokens::Integer => "<integer>",
-            BuiltInTokens::Float => "<float>",
-            BuiltInTokens::String => "<string>",
-            BuiltInTokens::Identifier => "<identifer>",
+            BuiltinTokens::Epsilon => "<epsilon>",
+            BuiltinTokens::EOF => "<$>",
+            BuiltinTokens::EndL => "<endl>",
+            BuiltinTokens::Integer => "<integer>",
+            BuiltinTokens::Float => "<float>",
+            BuiltinTokens::String => "<string>",
+            BuiltinTokens::Identifier => "<identifer>",
         }
     }
 }
@@ -41,9 +41,12 @@ pub(crate) enum SymbolOrTokenRef {
 
 impl std::fmt::Display for SymbolOrTokenRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // adds 1 as production is 1 indexed in human-readable format but 0
+        // indexed internally. This is probably going to haunt me at some
+        // point.
         match self {
-            SymbolOrTokenRef::Symbol(id) => write!(f, "S{}", id),
-            SymbolOrTokenRef::Token(id) => write!(f, "T{}", id),
+            SymbolOrTokenRef::Symbol(id) => write!(f, "S{}", id + 1),
+            SymbolOrTokenRef::Token(id) => write!(f, "T{}", id + 1),
         }
     }
 }
@@ -78,6 +81,11 @@ impl std::fmt::Display for RuleRef {
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Symbol<'a>(&'a str);
 
+impl<'a> Symbol<'a> {
+    pub(crate) fn new(symbol: &'a str) -> Self {
+        Self(symbol)
+    }
+}
 impl<'a> AsRef<str> for Symbol<'a> {
     fn as_ref(&self) -> &str {
         self.0
@@ -95,8 +103,8 @@ impl<'a> std::fmt::Display for Symbol<'a> {
 pub(crate) struct Token<'a>(&'a str);
 
 impl<'a> Token<'a> {
-    pub(crate) fn new(token_id: &'a str) -> Self {
-        Self(token_id)
+    pub(crate) fn new(token: &'a str) -> Self {
+        Self(token)
     }
 }
 
@@ -124,7 +132,7 @@ impl GrammarTable {
     /// exists, the index to the previously added symbol is returned.
     fn add_symbol_mut<S: AsRef<str>>(&mut self, symbol: S) -> usize {
         let symbol = symbol.as_ref();
-        let new_id = self.symbols.len() + 1;
+        let new_id = self.symbols.len();
 
         self.symbols.entry(symbol.to_string()).or_insert(new_id);
 
@@ -136,7 +144,7 @@ impl GrammarTable {
     /// exists, the index to the previously added token is returned.
     fn add_token_mut<S: AsRef<str>>(&mut self, token: S) -> usize {
         let token = token.as_ref();
-        let new_id = self.tokens.len() + 1;
+        let new_id = self.tokens.len();
 
         self.tokens.entry(token.to_string()).or_insert(new_id);
         // safe to unwrap due to above guarantee
@@ -304,13 +312,13 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
 
     // add default tokens
     let builtin_tokens = [
-        BuiltInTokens::Epsilon,
-        BuiltInTokens::EOF,
-        BuiltInTokens::EndL,
-        BuiltInTokens::Integer,
-        BuiltInTokens::Float,
-        BuiltInTokens::String,
-        BuiltInTokens::Identifier,
+        BuiltinTokens::Epsilon,
+        BuiltinTokens::EOF,
+        BuiltinTokens::EndL,
+        BuiltinTokens::Integer,
+        BuiltinTokens::Float,
+        BuiltinTokens::String,
+        BuiltinTokens::Identifier,
     ];
 
     for builtin_tokens in builtin_tokens {
