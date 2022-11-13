@@ -3,7 +3,7 @@ use std::collections::hash_map::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinTokens {
     Epsilon,
-    EOF,
+    Eof,
     EndL,
     Integer,
     Float,
@@ -15,7 +15,7 @@ impl BuiltinTokens {
     pub(crate) fn as_token(&self) -> &'static str {
         match self {
             BuiltinTokens::Epsilon => "<epsilon>",
-            BuiltinTokens::EOF => "<$>",
+            BuiltinTokens::Eof => "<$>",
             BuiltinTokens::EndL => "<endl>",
             BuiltinTokens::Integer => "<integer>",
             BuiltinTokens::Float => "<float>",
@@ -114,6 +114,18 @@ impl<'a> AsRef<str> for Token<'a> {
     }
 }
 
+impl<'a> From<&'a str> for Token<'a> {
+    fn from(val: &'a str) -> Self {
+        Token::new(val)
+    }
+}
+
+impl<'a> From<BuiltinTokens> for Token<'a> {
+    fn from(val: BuiltinTokens) -> Self {
+        Token::new(val.as_token())
+    }
+}
+
 impl<'a> std::fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
@@ -128,6 +140,8 @@ pub(crate) struct GrammarTable {
 }
 
 impl GrammarTable {
+    pub(crate) const ROOT_RULE_IDX: usize = 0;
+
     /// Adds a symbol to the table, returning its index. If the symbol already
     /// exists, the index to the previously added symbol is returned.
     fn add_symbol_mut<S: AsRef<str>>(&mut self, symbol: S) -> usize {
@@ -201,6 +215,7 @@ impl std::fmt::Display for GrammarTable {
     }
 }
 
+/// An ordered iterator over all symbols in a grammar table.
 pub(crate) struct SymbolIterator<'a> {
     symbols: Vec<&'a str>,
 }
@@ -229,6 +244,7 @@ impl<'a> Iterator for SymbolIterator<'a> {
     }
 }
 
+/// An ordered iterator over all tokens in a grammar table.
 pub(crate) struct TokenIterator<'a> {
     tokens: Vec<&'a str>,
 }
@@ -259,6 +275,7 @@ impl<'a> Iterator for TokenIterator<'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum GrammarLoadErrorKind {
+    NoTerminalProduction,
     InvalidRule,
     ConflictingRule,
 }
@@ -266,6 +283,10 @@ pub enum GrammarLoadErrorKind {
 impl std::fmt::Display for GrammarLoadErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NoTerminalProduction => {
+                write!(f, "grammar does not include a terminal production")
+            }
+
             Self::InvalidRule => write!(f, "provided rule is invalid",),
             Self::ConflictingRule => write!(f, "provided rule conflicts with existing rule",),
         }
@@ -306,14 +327,14 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
     let mut grammar_table = GrammarTable::default();
 
     // initial table
-    let root_rule_idx = 0;
+    let root_rule_idx = GrammarTable::ROOT_RULE_IDX;
     let root_rule = RuleRef::new(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
 
     // add default tokens
     let builtin_tokens = [
         BuiltinTokens::Epsilon,
-        BuiltinTokens::EOF,
+        BuiltinTokens::Eof,
         BuiltinTokens::EndL,
         BuiltinTokens::Integer,
         BuiltinTokens::Float,
@@ -405,6 +426,22 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
             grammar_table.add_rule_mut(rule)
         }
     }
+
+    // add the first production to the goal.
+    let root_production = grammar_table
+        .rules()
+        .next()
+        .map(|rule_ref| rule_ref.lhs)
+        .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
+    let first_non_root_production = grammar_table
+        .rules()
+        .nth(1)
+        .map(|rule_ref| rule_ref.lhs)
+        .map(SymbolOrTokenRef::Symbol)
+        .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
+    grammar_table.rules[root_production]
+        .rhs
+        .push(first_non_root_production);
 
     Ok(grammar_table)
 }

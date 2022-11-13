@@ -66,10 +66,10 @@ impl<'a> SymbolTokenSet<'a> {
     }
 
     /// Inserts a token into a symbol's set returning true if it already exists.
-    fn insert(&mut self, key: Symbol<'a>, token: Token<'a>) -> bool {
+    fn insert<T: Into<Token<'a>>>(&mut self, key: Symbol<'a>, token: T) -> bool {
         self.sets
             .get_mut(&key)
-            .map(|token_set| token_set.insert(token))
+            .map(|token_set| token_set.insert(token.into()))
             .unwrap_or(false)
     }
 
@@ -101,7 +101,7 @@ impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
             .map(|(symbol, toks)| {
                 let rhs = toks.iter().map(|tok| tok.to_string()).collect::<Vec<_>>();
 
-                format!("{}: {}", symbol.as_ref(), rhs.join(" "))
+                format!("{}: {}", symbol.as_ref(), rhs.join(", "))
             })
             .collect::<Vec<_>>();
 
@@ -121,7 +121,7 @@ fn build_first_set<'a>(
 
     // map nullable nonterminals to epsilon
     for symbol in nullable_nonterminals {
-        first_set.insert(*symbol, Token::new(BuiltinTokens::Epsilon.as_token()));
+        first_set.insert(*symbol, BuiltinTokens::Epsilon);
     }
 
     // set the initial token for each production
@@ -156,6 +156,56 @@ fn build_first_set<'a>(
     }
 
     first_set
+}
+
+fn build_follow_set<'a>(grammar_table: &'a GrammarTable) -> SymbolTokenSet<'a> {
+    let symbols = grammar_table.symbols().collect::<Vec<_>>();
+    let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let mut follow_set = SymbolTokenSet::new(&symbols);
+
+    // add eof to root rule symbol
+    let first_symbol = {
+        grammar_table
+            .rules()
+            .next()
+            .and_then(|first_rule| match first_rule.rhs.get(0) {
+                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(*idx).copied(),
+                _ => None,
+            })
+    }
+    .unwrap();
+
+    follow_set.insert(first_symbol, BuiltinTokens::Eof);
+
+    // set EOF on all symbols that are the last rhs item.
+    let symbols_at_end_of_production =
+        grammar_table
+            .rules()
+            .filter_map(|first_rule| match first_rule.rhs.last() {
+                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(*idx).copied(),
+                _ => None,
+            });
+    for symbol in symbols_at_end_of_production {
+        follow_set.insert(symbol, BuiltinTokens::Eof);
+    }
+
+    // populate the rest of the sets with any following terminals.
+    for rhs in grammar_table.rules().map(|rule_ref| &rule_ref.rhs) {
+        // get the symbol and position into rdx of each symbol.
+        let symbols_in_rule = rhs.iter().enumerate().filter_map(|(idx, sotr)| match sotr {
+            SymbolOrTokenRef::Symbol(symbol_ref) => Some((idx, symbols[*symbol_ref])),
+            _ => None,
+        });
+
+        for (symbols_idx_into_rhs, symbol) in symbols_in_rule {
+            if let Some(SymbolOrTokenRef::Token(token_ref)) = rhs.get(symbols_idx_into_rhs + 1) {
+                let token = tokens[*token_ref];
+                follow_set.insert(symbol, token);
+            }
+        }
+    }
+
+    follow_set
 }
 
 fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Symbol> {
@@ -224,7 +274,7 @@ mod tests {
 ";
 
     #[test]
-    fn first_sets_returns_expected_values() {
+    fn first_set_returns_expected_values() {
         let grammar_table = load_grammar(TEST_GRAMMAR);
 
         assert!(grammar_table.is_ok());
@@ -235,13 +285,34 @@ mod tests {
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
 
-        let got = first_sets
-            .sets
-            .iter()
-            .map(|(symbol, toks)| (*symbol, toks.iter().copied().collect::<Vec<_>>()))
-            .collect::<Vec<_>>();
+        let got = first_sets.sets.into_iter().collect::<Vec<_>>();
+        let expected = vec![(
+            Symbol::new("<parens>"),
+            [Token::new("(")].into_iter().collect::<HashSet<_>>(),
+        )];
 
-        let expected = vec![(Symbol::new("<parens>"), vec![Token::new("(")])];
+        assert_eq!(expected, got)
+    }
+
+    #[test]
+    fn follow_set_returns_expected_values() {
+        let grammar_table = load_grammar(TEST_GRAMMAR);
+
+        assert!(grammar_table.is_ok());
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+
+        let follow_set = build_follow_set(&grammar_table);
+
+        let got = follow_set.sets.into_iter().collect::<Vec<_>>();
+        let expected = vec![(
+            Symbol::new("<parens>"),
+            [Token::new("("), Token::new(")"), Token::new("<$>")]
+                .into_iter()
+                .collect::<HashSet<_>>(),
+        )];
+
         assert_eq!(expected, got)
     }
 }
