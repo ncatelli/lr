@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::write,
+};
 
 use crate::grammar::*;
 
@@ -87,6 +90,22 @@ impl<'a> SymbolTokenSet<'a> {
                 token_set.insert(token);
             }
         });
+    }
+}
+
+impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lines = self
+            .sets
+            .iter()
+            .map(|(symbol, toks)| {
+                let rhs = toks.iter().map(|tok| tok.to_string()).collect::<Vec<_>>();
+
+                format!("{}: {}", symbol.as_ref(), rhs.join(" "))
+            })
+            .collect::<Vec<_>>();
+
+        write!(f, "{}", lines.join("\n"))
     }
 }
 
@@ -215,6 +234,7 @@ mod tests {
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
+
         let got = first_sets
             .sets
             .iter()
