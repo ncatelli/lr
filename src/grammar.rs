@@ -113,8 +113,27 @@ pub(crate) struct RuleRef {
 }
 
 impl RuleRef {
-    fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Self {
+    fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
+        let rule = Self::new_unchecked(lhs, rhs);
+
+        if rule.is_valid() {
+            Some(rule)
+        } else {
+            None
+        }
+    }
+
+    fn new_unchecked(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Self {
         Self { lhs, rhs }
+    }
+
+    fn is_valid(&self) -> bool {
+        let is_non_terminal_rule = self
+            .rhs
+            .iter()
+            .all(|items| items == &SymbolOrTokenRef::Symbol(self.lhs));
+
+        !(self.rhs.is_empty() || is_non_terminal_rule)
     }
 }
 
@@ -383,7 +402,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
 
     // initial table
     let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
-    let root_rule = RuleRef::new(root_rule_idx, vec![]);
+    let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
 
     // add default tokens
@@ -452,7 +471,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
 
         let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
         let rule_ref = SymbolRef::from(rule_id);
-        let mut rule = RuleRef::new(rule_ref, vec![]);
+        let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
 
         // add tokens and fill the rule.
         for elem in rhs {
@@ -481,6 +500,9 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
 
         if grammar_table.rules.contains(&rule) {
             return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
+                .with_data(format!("lineno {}: {} ", lineno, &rule)));
+        } else if !rule.is_valid() {
+            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
                 .with_data(format!("lineno {}: {} ", lineno, &rule)));
         } else {
             grammar_table.add_rule_mut(rule)
