@@ -33,39 +33,94 @@ pub(crate) enum SymbolOrToken<'a> {
     Token(Token<'a>),
 }
 
+/// A wrapper type for symbols that reference the grammar table.
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SymbolRef(usize);
+
+impl SymbolRef {
+    pub(crate) fn new(symbol: usize) -> Self {
+        Self(symbol)
+    }
+
+    pub(crate) fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for SymbolRef {
+    fn from(val: usize) -> Self {
+        Self::new(val)
+    }
+}
+
+impl std::fmt::Display for SymbolRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Adds 1 as production is 1 indexed in human-readable format but 0
+        // indexed internally. This is probably going to haunt me at some
+        // point.
+        write!(f, "S{}", &self.0 + 1)
+    }
+}
+
+/// A wrapper type for tokens that reference the grammar table.
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TokenRef(usize);
+
+impl TokenRef {
+    pub(crate) fn new(token: usize) -> Self {
+        Self(token)
+    }
+
+    pub(crate) fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for TokenRef {
+    fn from(val: usize) -> Self {
+        Self::new(val)
+    }
+}
+
+impl std::fmt::Display for TokenRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Adds 1 as production is 1 indexed in human-readable format but 0
+        // indexed internally. This is probably going to haunt me at some
+        // point.
+        write!(f, "T{}", &self.0 + 1)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SymbolOrTokenRef {
-    Symbol(ElementId),
-    Token(ElementId),
+    Symbol(SymbolRef),
+    Token(TokenRef),
 }
 
 impl std::fmt::Display for SymbolOrTokenRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // adds 1 as production is 1 indexed in human-readable format but 0
-        // indexed internally. This is probably going to haunt me at some
-        // point.
         match self {
-            SymbolOrTokenRef::Symbol(id) => write!(f, "S{}", id + 1),
-            SymbolOrTokenRef::Token(id) => write!(f, "T{}", id + 1),
+            SymbolOrTokenRef::Symbol(id) => write!(f, "{}", id),
+            SymbolOrTokenRef::Token(id) => write!(f, "{}", id),
         }
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuleRef {
-    pub lhs: ElementId,
+    pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
 }
 
 impl RuleRef {
-    fn new(lhs: ElementId, rhs: Vec<SymbolOrTokenRef>) -> Self {
+    fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Self {
         Self { lhs, rhs }
     }
 }
 
 impl std::fmt::Display for RuleRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let lhs = format!("S{}", self.lhs);
+        let lhs = format!("S{}", self.lhs.as_usize() + 1);
         let rhs = self
             .rhs
             .iter()
@@ -327,7 +382,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
     let mut grammar_table = GrammarTable::default();
 
     // initial table
-    let root_rule_idx = GrammarTable::ROOT_RULE_IDX;
+    let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
     let root_rule = RuleRef::new(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
 
@@ -396,21 +451,26 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         })?;
 
         let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
-        let mut rule = RuleRef::new(rule_id, vec![]);
+        let rule_ref = SymbolRef::from(rule_id);
+        let mut rule = RuleRef::new(rule_ref, vec![]);
 
         // add tokens and fill the rule.
         for elem in rhs {
             if let Some(symbol) = symbol_value_from_str(elem) {
                 let symbol_id = {
                     let symbol_id = grammar_table.add_symbol_mut(symbol);
-                    SymbolOrTokenRef::Symbol(symbol_id)
+                    let symbol_ref = SymbolRef::new(symbol_id);
+
+                    SymbolOrTokenRef::Symbol(symbol_ref)
                 };
                 rule.rhs.push(symbol_id);
             // validate all token values are single length.
             } else if let Some(token) = token_value_from_str(elem) {
                 let token_id = {
                     let token_id = grammar_table.add_token_mut(token);
-                    SymbolOrTokenRef::Token(token_id)
+                    let token_ref = TokenRef::from(token_id);
+
+                    SymbolOrTokenRef::Token(token_ref)
                 };
                 rule.rhs.push(token_id);
             } else {
@@ -439,7 +499,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         .map(|rule_ref| rule_ref.lhs)
         .map(SymbolOrTokenRef::Symbol)
         .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
-    grammar_table.rules[root_production]
+    grammar_table.rules[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
 

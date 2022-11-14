@@ -127,11 +127,11 @@ fn build_first_set<'a>(
     // set the initial token for each production
     let initial_tokens_of_productions = grammar_table.rules().filter_map(|rule_ref| {
         let lhs_idx = rule_ref.lhs;
-        let lhs_symbol = symbols[lhs_idx];
+        let lhs_symbol = symbols[lhs_idx.as_usize()];
 
         if let Some(SymbolOrTokenRef::Token(idx)) = rule_ref.rhs.get(0) {
             // if the the first token in the pattern isn't epsilon, add it.
-            let first_token = tokens[*idx];
+            let first_token = tokens[idx.as_usize()];
             Some((lhs_symbol, first_token))
         } else {
             None
@@ -146,11 +146,11 @@ fn build_first_set<'a>(
     // set the initial token for each production
     for rule_ref in grammar_table.rules() {
         let lhs_idx = rule_ref.lhs;
-        let lhs_symbol = symbols[lhs_idx];
+        let lhs_symbol = symbols[lhs_idx.as_usize()];
 
         if let Some(SymbolOrTokenRef::Symbol(idx)) = rule_ref.rhs.get(0) {
             // get all terminals from the first symbol
-            let first_rhs_symbol = symbols[*idx];
+            let first_rhs_symbol = symbols[idx.as_usize()];
             first_set.union_of_sets(lhs_symbol, &first_rhs_symbol)
         }
     }
@@ -169,7 +169,7 @@ fn build_follow_set<'a>(grammar_table: &'a GrammarTable) -> SymbolTokenSet<'a> {
             .rules()
             .next()
             .and_then(|first_rule| match first_rule.rhs.get(0) {
-                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(*idx).copied(),
+                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(idx.as_usize()).copied(),
                 _ => None,
             })
     }
@@ -182,7 +182,7 @@ fn build_follow_set<'a>(grammar_table: &'a GrammarTable) -> SymbolTokenSet<'a> {
         grammar_table
             .rules()
             .filter_map(|first_rule| match first_rule.rhs.last() {
-                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(*idx).copied(),
+                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(idx.as_usize()).copied(),
                 _ => None,
             });
     for symbol in symbols_at_end_of_production {
@@ -193,13 +193,13 @@ fn build_follow_set<'a>(grammar_table: &'a GrammarTable) -> SymbolTokenSet<'a> {
     for rhs in grammar_table.rules().map(|rule_ref| &rule_ref.rhs) {
         // get the symbol and position into rdx of each symbol.
         let symbols_in_rule = rhs.iter().enumerate().filter_map(|(idx, sotr)| match sotr {
-            SymbolOrTokenRef::Symbol(symbol_ref) => Some((idx, symbols[*symbol_ref])),
+            SymbolOrTokenRef::Symbol(symbol_ref) => Some((idx, symbols[symbol_ref.as_usize()])),
             _ => None,
         });
 
         for (symbols_idx_into_rhs, symbol) in symbols_in_rule {
             if let Some(SymbolOrTokenRef::Token(token_ref)) = rhs.get(symbols_idx_into_rhs + 1) {
-                let token = tokens[*token_ref];
+                let token = tokens[token_ref.as_usize()];
                 follow_set.insert(symbol, token);
             }
         }
@@ -219,13 +219,13 @@ fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Sy
         done = true;
         for rule in grammar_table.rules() {
             let lhs_id = rule.lhs;
-            let lhs = symbols[lhs_id];
+            let lhs = symbols[lhs_id.as_usize()];
 
             // validate that the production isn't already nullable
             if !nullable_nonterminal_productions.contains(&lhs) {
                 let first_rhs_is_token = rule.rhs.get(0).and_then(|sotr| match sotr {
                     SymbolOrTokenRef::Symbol(_) => None,
-                    SymbolOrTokenRef::Token(idx) => tokens.get(*idx),
+                    SymbolOrTokenRef::Token(idx) => tokens.get(idx.as_usize()),
                 });
                 if first_rhs_is_token == Some(&Token::new(BuiltinTokens::Epsilon.as_token())) {
                     nullable_nonterminal_productions.insert(lhs);
@@ -234,7 +234,7 @@ fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Sy
                     // check that the production doesn't contain a token or is not nullable.
                     let all_nullable = rule.rhs.iter().any(|sotr| match sotr {
                         SymbolOrTokenRef::Symbol(idx) => {
-                            let symbol = symbols.get(*idx).unwrap();
+                            let symbol = symbols.get(idx.as_usize()).unwrap();
                             nullable_nonterminal_productions.contains(symbol)
                         }
                         SymbolOrTokenRef::Token(_) => false,
