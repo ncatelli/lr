@@ -12,6 +12,22 @@ pub(crate) enum BuiltinTokens {
 }
 
 impl BuiltinTokens {
+    pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
+        let val = token_str.as_ref();
+        [
+            Self::Epsilon,
+            Self::Eof,
+            Self::EndL,
+            Self::Integer,
+            Self::Float,
+            Self::String,
+            Self::Identifier,
+        ]
+        .iter()
+        .map(|builtin| builtin.as_token())
+        .any(|builtin| builtin == val)
+    }
+
     pub(crate) fn as_token(&self) -> &'static str {
         match self {
             BuiltinTokens::Epsilon => "<epsilon>",
@@ -106,7 +122,7 @@ impl std::fmt::Display for SymbolOrTokenRef {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RuleRef {
     pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
@@ -533,9 +549,10 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 
     let is_wrapped = trimmed_value.starts_with('<') && trimmed_value.ends_with('>');
     let is_not_empty = trimmed_value.len() > 2;
+    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
 
     // guarantee that it's a symbol and that it's not just an empty symbol `<>`
-    if is_wrapped && is_not_empty {
+    if is_wrapped && is_not_empty && !is_builtin {
         Some(trimmed_value)
     } else {
         None
@@ -545,8 +562,9 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 fn token_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
     let value_len = trimmed_value.len();
+    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
 
-    if value_len == 1 {
+    if value_len == 1 || is_builtin {
         Some(trimmed_value)
     } else {
         None

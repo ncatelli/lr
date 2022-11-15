@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::write,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::grammar::*;
 
@@ -252,6 +249,22 @@ fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Sy
     nullable_nonterminal_productions
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ItemRef {
+    production: RuleRef,
+    lookahead: SymbolOrTokenRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ItemSet {
+    items: Vec<ItemRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ItemCollection {
+    item_sets: Vec<ItemSet>,
+}
+
 /// Build a LR(1) parser from a given grammar.
 pub(crate) fn build_lr_parser(grammar_table: &GrammarTable) -> Result<LrParser, ParserGenError> {
     let _nullable_nonterminal_productions = find_nullable_nonterminals(grammar_table);
@@ -292,6 +305,49 @@ mod tests {
         )];
 
         assert_eq!(expected, got)
+    }
+
+    #[test]
+    fn should_parse_set_with_nullable_nonterminal() {
+        let grammar = "
+<expr> ::= <expr> + <term>
+<term> ::= <term> * <factor>
+<expr> ::= <term>
+<term> ::= <factor>
+<factor> ::= <integer>
+";
+        let grammar_with_epsilon = "
+ <term> ::= <integer>\n
+<factor> ::= <epsilon>\n
+        ";
+
+        let grammar_table = load_grammar(grammar);
+        assert!(grammar_table.is_ok());
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+
+        // assert there are no nullable nonterminals terms.
+        let no_nullable_nonterminals = find_nullable_nonterminals(&grammar_table)
+            .into_iter()
+            .next()
+            .is_none();
+
+        assert!(no_nullable_nonterminals);
+
+        // check a grammar containing an nullable non_terminal.
+        let grammar_table = load_grammar(grammar_with_epsilon);
+        assert!(grammar_table.is_ok());
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+        // assert there are no nullable nonterminals terms.
+
+        let nullable_nonterminals = find_nullable_nonterminals(&grammar_table)
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        assert_eq!(vec![Symbol::new("<factor>")], nullable_nonterminals)
     }
 
     #[test]
