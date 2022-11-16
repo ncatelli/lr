@@ -338,6 +338,47 @@ impl<'a> ItemSet<'a> {
     fn new(items: Vec<ItemRef<'a>>) -> Self {
         Self { items }
     }
+
+    fn printable_format(self, grammar_table: &'a GrammarTable) -> String {
+        self.items
+            .into_iter()
+            .map(|item_ref| {
+                let rule_ref = item_ref.production;
+
+                let dot_position = item_ref.dot_position;
+                let production = grammar_table
+                    .symbols()
+                    .nth(rule_ref.lhs.as_usize())
+                    .unwrap();
+                let mut rhs = rule_ref
+                    .rhs
+                    .iter()
+                    .filter_map(|sotr| match sotr {
+                        SymbolOrTokenRef::Symbol(sym_ref) => grammar_table
+                            .symbols()
+                            .nth(sym_ref.as_usize())
+                            .map(SymbolOrToken::Symbol),
+                        SymbolOrTokenRef::Token(tok_ref) => grammar_table
+                            .tokens()
+                            .nth(tok_ref.as_usize())
+                            .map(SymbolOrToken::Token),
+                    })
+                    .map(|sot| match sot {
+                        SymbolOrToken::Symbol(s) => s.to_string(),
+                        SymbolOrToken::Token(t) => t.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                rhs.insert(dot_position, ".".to_string());
+
+                let lookahead = grammar_table
+                    .tokens()
+                    .nth(item_ref.lookahead.as_usize())
+                    .unwrap();
+
+                format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
+            })
+            .collect::<String>()
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -592,47 +633,6 @@ mod tests {
 
         let closure = closure(&grammar_table, ItemRef::new(initial_rule, 0, eof));
 
-        let _formatted_closure = closure
-            .items
-            .into_iter()
-            .map(|item_ref| {
-                let rule_ref = item_ref.production;
-
-                let dot_position = item_ref.dot_position;
-                let production = grammar_table
-                    .symbols()
-                    .nth(rule_ref.lhs.as_usize())
-                    .unwrap();
-                let mut rhs = rule_ref
-                    .rhs
-                    .iter()
-                    .filter_map(|sotr| match sotr {
-                        SymbolOrTokenRef::Symbol(sym_ref) => grammar_table
-                            .symbols()
-                            .nth(sym_ref.as_usize())
-                            .map(SymbolOrToken::Symbol),
-                        SymbolOrTokenRef::Token(tok_ref) => grammar_table
-                            .tokens()
-                            .nth(tok_ref.as_usize())
-                            .map(SymbolOrToken::Token),
-                    })
-                    .map(|sot| match sot {
-                        SymbolOrToken::Symbol(s) => s.to_string(),
-                        SymbolOrToken::Token(t) => t.to_string(),
-                    })
-                    .collect::<Vec<_>>();
-                rhs.insert(dot_position, ".".to_string());
-
-                let lookahead = grammar_table
-                    .tokens()
-                    .nth(item_ref.lookahead.as_usize())
-                    .unwrap();
-
-                format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
-            })
-            .collect::<String>();
-
-        //println!("{}", formatted_closure);
-        println!("{:#?}", build_follow_set(&grammar_table, &first_sets))
+        assert!(closure.items.len() == 14)
     }
 }
