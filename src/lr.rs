@@ -623,8 +623,6 @@ mod tests {
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
-        let nullable_terms = find_nullable_nonterminals(&grammar_table);
-        let first_sets = build_first_set(&grammar_table, &nullable_terms);
 
         let initial_rule = grammar_table.rules().next().unwrap();
         let eof = grammar_table
@@ -633,6 +631,12 @@ mod tests {
 
         let closure = closure(&grammar_table, ItemRef::new(initial_rule, 0, eof));
 
-        assert!(closure.items.len() == 14)
+        assert!(
+            closure.items.len() == 14,
+            "{}",
+            closure.printable_format(&grammar_table)
+        );
+
+        println!("{}", closure.printable_format(&grammar_table));
     }
 }

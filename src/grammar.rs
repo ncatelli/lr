@@ -557,9 +557,6 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
     grammar_table.rules[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
-    grammar_table.rules[root_production.as_usize()]
-        .rhs
-        .push(eof_ref);
 
     Ok(grammar_table)
 }
