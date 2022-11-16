@@ -1,6 +1,27 @@
 use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuiltinSymbols {
+    Goal,
+}
+
+impl BuiltinSymbols {
+    pub(crate) fn is_builtin<S: AsRef<str>>(symbol_str: S) -> bool {
+        let val = symbol_str.as_ref();
+        [Self::Goal]
+            .iter()
+            .map(|builtin| builtin.as_symbol())
+            .any(|builtin| builtin == val)
+    }
+
+    pub(crate) fn as_symbol(&self) -> &'static str {
+        match self {
+            Self::Goal => "<*>",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinTokens {
     Epsilon,
     Eof,
@@ -185,6 +206,12 @@ impl<'a> AsRef<str> for Symbol<'a> {
 impl<'a> std::fmt::Display for Symbol<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
+    }
+}
+
+impl<'a> From<BuiltinSymbols> for Symbol<'a> {
+    fn from(val: BuiltinSymbols) -> Self {
+        Self::new(val.as_symbol())
     }
 }
 
@@ -427,7 +454,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
     let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
     let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
-    grammar_table.add_symbol_mut("<goal>");
+    grammar_table.add_symbol_mut(BuiltinSymbols::Goal.as_symbol());
 
     // add default tokens
     let builtin_tokens = [
@@ -662,7 +689,10 @@ mod tests {
 
         let mut symbol_iter = grammar_table.symbols();
 
-        assert_eq!(Some(Symbol("<goal>")), symbol_iter.next());
+        assert_eq!(
+            Some(Symbol(BuiltinSymbols::Goal.as_symbol())),
+            symbol_iter.next()
+        );
         assert_eq!(Some(Symbol("<expr>")), symbol_iter.next());
         assert_eq!(Some(Symbol("<addition>")), symbol_iter.next());
         assert_eq!(None, symbol_iter.next());

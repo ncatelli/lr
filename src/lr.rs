@@ -181,7 +181,7 @@ fn build_follow_set<'a>(
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(Symbol::new("<goal>"), BuiltinTokens::Eof);
+    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), BuiltinTokens::Eof);
 
     let mut changed = true;
     while changed {
@@ -540,6 +540,12 @@ mod tests {
 
         let expected = vec![
             (
+                Symbol::from(BuiltinSymbols::Goal),
+                [Token::new("<integer>"), Token::new("+"), Token::new("(")]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
                 Symbol::new("<E>"),
                 [Token::new("<integer>"), Token::new("+"), Token::new("(")]
                     .into_iter()
@@ -548,12 +554,6 @@ mod tests {
             (
                 Symbol::new("<T>"),
                 [Token::new("<integer>"), Token::new("+")]
-                    .into_iter()
-                    .collect::<HashSet<_>>(),
-            ),
-            (
-                Symbol::new("<goal>"),
-                [Token::new("<integer>"), Token::new("+"), Token::new("(")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
@@ -588,6 +588,10 @@ mod tests {
 
         let expected = vec![
             (
+                Symbol::from(BuiltinSymbols::Goal),
+                [Token::new("<$>")].into_iter().collect::<HashSet<_>>(),
+            ),
+            (
                 Symbol::new("<E>"),
                 [Token::new("<$>"), Token::new(")")]
                     .into_iter()
@@ -598,10 +602,6 @@ mod tests {
                 [Token::new("+"), Token::new(")"), Token::new("<$>")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
-            ),
-            (
-                Symbol::new("<goal>"),
-                [Token::new("<$>")].into_iter().collect::<HashSet<_>>(),
             ),
         ];
 
