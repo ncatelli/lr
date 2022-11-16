@@ -79,14 +79,18 @@ impl<'a> SymbolTokenSet<'a> {
     }
 
     /// sets the tokens for `lhs` to the union of `lhs` and `rhs`.
-    fn union_of_sets(&mut self, lhs: Symbol<'a>, rhs: &Symbol<'a>) {
+    fn union_of_sets(&mut self, lhs: Symbol<'a>, rhs: &Symbol<'a>) -> bool {
+        let mut changed = false;
+
         // get all terminals from the rhs symbol
         let first_tokens_from_rhs_symbol = self.sets.get(rhs).cloned().unwrap_or_default();
         self.sets.entry(lhs).and_modify(|token_set| {
             for token in first_tokens_from_rhs_symbol {
-                token_set.insert(token);
+                changed = token_set.insert(token);
             }
         });
+
+        changed
     }
 }
 
@@ -103,6 +107,12 @@ impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
             .collect::<Vec<_>>();
 
         write!(f, "{}", lines.join("\n"))
+    }
+}
+
+impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
+    fn as_ref(&self) -> &HashMap<Symbol<'a>, HashSet<Token<'a>>> {
+        &self.sets
     }
 }
 
@@ -140,64 +150,117 @@ fn build_first_set<'a>(
         first_set.insert(symbol, first_token);
     }
 
-    // set the initial token for each production
-    for rule_ref in grammar_table.rules() {
-        let lhs_idx = rule_ref.lhs;
-        let lhs_symbol = symbols[lhs_idx.as_usize()];
+    let mut changed = true;
 
-        if let Some(SymbolOrTokenRef::Symbol(idx)) = rule_ref.rhs.get(0) {
-            // get all terminals from the first symbol
-            let first_rhs_symbol = symbols[idx.as_usize()];
-            first_set.union_of_sets(lhs_symbol, &first_rhs_symbol)
+    while changed {
+        changed = false;
+        // set the initial token for each production
+        for rule_ref in grammar_table.rules() {
+            let lhs_idx = rule_ref.lhs;
+            let lhs_symbol = symbols[lhs_idx.as_usize()];
+
+            if let Some(SymbolOrTokenRef::Symbol(idx)) = rule_ref.rhs.get(0) {
+                // get all terminals from the first symbol
+                let first_rhs_symbol = symbols[idx.as_usize()];
+                if first_set.union_of_sets(lhs_symbol, &first_rhs_symbol) {
+                    changed = true;
+                }
+            }
         }
     }
 
     first_set
 }
 
-fn build_follow_set<'a>(grammar_table: &'a GrammarTable) -> SymbolTokenSet<'a> {
+fn build_follow_set<'a>(
+    grammar_table: &'a GrammarTable,
+    first_sets: &'a SymbolTokenSet,
+) -> SymbolTokenSet<'a> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
-    // add eof to root rule symbol
-    let first_symbol = {
-        grammar_table
-            .rules()
-            .next()
-            .and_then(|first_rule| match first_rule.rhs.get(0) {
-                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(idx.as_usize()).copied(),
-                _ => None,
-            })
-    }
-    .unwrap();
+    // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
+    follow_set.insert(Symbol::new("<goal>"), BuiltinTokens::Eof);
 
-    follow_set.insert(first_symbol, BuiltinTokens::Eof);
+    let mut changed = true;
+    while changed {
+        changed = false;
 
-    // set EOF on all symbols that are the last rhs item.
-    let symbols_at_end_of_production =
-        grammar_table
-            .rules()
-            .filter_map(|first_rule| match first_rule.rhs.last() {
-                Some(SymbolOrTokenRef::Symbol(idx)) => symbols.get(idx.as_usize()).copied(),
-                _ => None,
+        let symbol_and_rules_containing_it =
+            grammar_table.symbols().enumerate().flat_map(|(sid, s)| {
+                grammar_table.rules().filter_map(move |rule| {
+                    if rule
+                        .rhs
+                        .contains(&SymbolOrTokenRef::Symbol(SymbolRef::new(sid)))
+                    {
+                        Some((s, rule))
+                    } else {
+                        None
+                    }
+                })
             });
-    for symbol in symbols_at_end_of_production {
-        follow_set.insert(symbol, BuiltinTokens::Eof);
-    }
 
-    // populate the rest of the sets with any following terminals.
-    for rhs in grammar_table.rules().map(|rule_ref| &rule_ref.rhs) {
-        // get the symbol and position into rdx of each symbol.
-        let symbols_in_rule = rhs.iter().enumerate().filter_map(|(idx, sotr)| match sotr {
-            SymbolOrTokenRef::Symbol(symbol_ref) => Some((idx, symbols[symbol_ref.as_usize()])),
-            _ => None,
-        });
+        for (b, rule) in symbol_and_rules_containing_it {
+            let symbol_ref = grammar_table.symbol_mapping(&b).unwrap();
+            let rhs = &rule.rhs;
+            let symbol_pos = rhs
+                .iter()
+                .position(|sotr| sotr == &SymbolOrTokenRef::Symbol(symbol_ref))
+                // existence in this loop means it exists in the rule.
+                .unwrap();
 
-        for (symbols_idx_into_rhs, symbol) in symbols_in_rule {
-            if let Some(SymbolOrTokenRef::Token(token_ref)) = rhs.get(symbols_idx_into_rhs + 1) {
-                let token = tokens[token_ref.as_usize()];
-                follow_set.insert(symbol, token);
+            let symbol_is_last_in_rhs = symbol_pos == rhs.len().saturating_sub(1);
+
+            // 2) If A -> pBq is a production, where p, B and q are any grammar symbols,
+            //    then everything in FIRST(q)  except Є is in FOLLOW(B).
+            // and
+            // 4) If A->pBq is a production and FIRST(q) contains Є,
+            // then FOLLOW(B) contains { FIRST(q) – Є } U FOLLOW(A)
+            if !symbol_is_last_in_rhs {
+                let q = &rhs[symbol_pos + 1];
+                match q {
+                    SymbolOrTokenRef::Symbol(idx) => {
+                        let q_symbol = symbols[idx.as_usize()];
+                        let q_first_set = first_sets.sets.get(&q_symbol).unwrap();
+                        let contains_epsilon =
+                            q_first_set.contains(&Token::from(BuiltinTokens::Epsilon));
+
+                        let q_first_set_sans_epsilon = q_first_set
+                            .iter()
+                            .filter(|&tok| tok != &Token::from(BuiltinTokens::Epsilon));
+
+                        for &t in q_first_set_sans_epsilon {
+                            if follow_set.insert(b, t) {
+                                changed = true;
+                            }
+                        }
+
+                        if contains_epsilon {
+                            let a = &symbols[rule.lhs.as_usize()];
+
+                            if follow_set.union_of_sets(b, a) {
+                                changed = true;
+                            }
+                        }
+                    }
+                    SymbolOrTokenRef::Token(idx) => {
+                        let q = tokens[idx.as_usize()];
+
+                        if follow_set.insert(b, q) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+
+            // 3) If A->pB is a production, then everything in FOLLOW(A) is in FOLLOW(B).
+            if symbol_is_last_in_rhs {
+                let a = &symbols[rule.lhs.as_usize()];
+
+                if follow_set.union_of_sets(b, a) {
+                    changed = true;
+                }
             }
         }
     }
@@ -250,19 +313,114 @@ fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Sy
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ItemRef {
-    production: RuleRef,
-    lookahead: SymbolOrTokenRef,
+struct ItemRef<'a> {
+    production: &'a RuleRef,
+    dot_position: usize,
+    lookahead: TokenRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ItemSet {
-    items: Vec<ItemRef>,
+impl<'a> ItemRef<'a> {
+    fn new(production: &'a RuleRef, dot_position: usize, lookahead: TokenRef) -> Self {
+        Self {
+            production,
+            dot_position,
+            lookahead,
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ItemCollection {
-    item_sets: Vec<ItemSet>,
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+struct ItemSet<'a> {
+    items: Vec<ItemRef<'a>>,
+}
+
+impl<'a> ItemSet<'a> {
+    fn new(items: Vec<ItemRef<'a>>) -> Self {
+        Self { items }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+struct ItemCollection<'a> {
+    item_sets: Vec<ItemSet<'a>>,
+}
+
+fn closure<'a>(grammar_table: &'a GrammarTable, initial_item: ItemRef<'a>) -> ItemSet<'a> {
+    let nullable_terms = find_nullable_nonterminals(grammar_table);
+    let first_sets = build_first_set(grammar_table, &nullable_terms);
+    let follow_sets = build_follow_set(grammar_table, &first_sets);
+
+    let mut set = ItemSet::default();
+    let mut curr = vec![initial_item.production.lhs];
+    let mut visited = HashSet::new();
+
+    let dot_position = initial_item.dot_position;
+
+    while !curr.is_empty() {
+        let mut next = vec![];
+
+        for production_symbol_ref in curr.clone() {
+            // mark the symbol visited
+            visited.insert(production_symbol_ref);
+
+            let production_symbol = grammar_table
+                .symbols()
+                .nth(production_symbol_ref.as_usize())
+                .unwrap();
+
+            let follow_set = follow_sets.sets.get(&production_symbol).unwrap();
+
+            let rules_matching_production = grammar_table
+                .rules()
+                .filter(|rule| rule.lhs == production_symbol_ref);
+
+            for rule in rules_matching_production {
+                let next_after_dot = rule.rhs.get(dot_position).copied();
+
+                match next_after_dot {
+                    Some(SymbolOrTokenRef::Token(_)) => {
+                        follow_set
+                            .iter()
+                            .filter_map(|tok| grammar_table.token_mapping(tok))
+                            .map(|tok_ref| ItemRef::new(rule, dot_position, tok_ref))
+                            .for_each(|item_ref| set.items.push(item_ref));
+                    }
+                    Some(SymbolOrTokenRef::Symbol(symbol_ref)) => {
+                        // add the symbol for next iteration if it hasn't been
+                        // visited yet.
+                        if !visited.contains(&symbol_ref) {
+                            next.push(symbol_ref);
+                        }
+
+                        follow_set
+                            .iter()
+                            .filter_map(|tok| grammar_table.token_mapping(tok))
+                            .map(|tok_ref| ItemRef::new(rule, dot_position, tok_ref))
+                            .for_each(|item_ref| set.items.push(item_ref));
+                    }
+                    None => {}
+                }
+            }
+        }
+
+        std::mem::swap(&mut curr, &mut next);
+    }
+
+    set
+}
+
+fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
+    let first_rule = grammar_table.rules().next().unwrap();
+
+    let mut i0 = ItemSet::default();
+    let eof_token_ref = grammar_table
+        .token_mapping(&Token::from(BuiltinTokens::Eof))
+        .unwrap();
+    i0.items.push(ItemRef::new(first_rule, 0, eof_token_ref));
+
+    let _collection = ItemCollection::default();
+
+    todo!()
 }
 
 /// Build a LR(1) parser from a given grammar.
@@ -275,37 +433,6 @@ pub(crate) fn build_lr_parser(grammar_table: &GrammarTable) -> Result<LrParser, 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const TEST_GRAMMAR: &str = "
-; a comment
-<parens> ::= ( <parens> )
-<parens> ::= ( )
-<parens> ::= <parens> ( )
-<parens> ::= <parens> ( <parens> )
-<parens> ::= ( ) <parens>
-<parens> ::= ( <parens> ) <parens>
-";
-
-    #[test]
-    fn first_set_returns_expected_values() {
-        let grammar_table = load_grammar(TEST_GRAMMAR);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
-
-        let nullable_terms = find_nullable_nonterminals(&grammar_table);
-        let first_sets = build_first_set(&grammar_table, &nullable_terms);
-
-        let got = first_sets.sets.into_iter().collect::<Vec<_>>();
-        let expected = vec![(
-            Symbol::new("<parens>"),
-            [Token::new("(")].into_iter().collect::<HashSet<_>>(),
-        )];
-
-        assert_eq!(expected, got)
-    }
 
     #[test]
     fn should_parse_set_with_nullable_nonterminal() {
@@ -347,28 +474,165 @@ mod tests {
             .into_iter()
             .collect::<Vec<_>>();
 
-        assert_eq!(vec![Symbol::new("<factor>")], nullable_nonterminals)
+        assert_eq!(nullable_nonterminals, vec![Symbol::new("<factor>")])
+    }
+
+    #[test]
+    fn first_set_returns_expected_values() {
+        let grammar = "<E> ::= <T>
+<E> ::= ( <E> )
+<T> ::= <integer>
+<T> ::= + <T>
+<T> ::= <T> + <integer>
+";
+
+        let grammar_table = load_grammar(grammar);
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+
+        let nullable_terms = find_nullable_nonterminals(&grammar_table);
+        let first_sets = build_first_set(&grammar_table, &nullable_terms);
+
+        let mut got = first_sets.sets.into_iter().collect::<Vec<_>>();
+        got.sort_by(|(a, _), (b, _)| a.as_ref().cmp(b.as_ref()));
+
+        let expected = vec![
+            (
+                Symbol::new("<E>"),
+                [Token::new("<integer>"), Token::new("+"), Token::new("(")]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
+                Symbol::new("<T>"),
+                [Token::new("<integer>"), Token::new("+")]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
+                Symbol::new("<goal>"),
+                [Token::new("<integer>"), Token::new("+"), Token::new("(")]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+        ];
+
+        assert_eq!(&got, &expected)
     }
 
     #[test]
     fn follow_set_returns_expected_values() {
-        let grammar_table = load_grammar(TEST_GRAMMAR);
+        let grammar = "<E> ::= <T>
+<E> ::= ( <E> )
+<T> ::= <integer>
+<T> ::= + <T>
+<T> ::= <T> + <integer>
+";
+
+        let grammar_table = load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
 
-        let follow_set = build_follow_set(&grammar_table);
+        let nullable_terms = find_nullable_nonterminals(&grammar_table);
+        let first_sets = build_first_set(&grammar_table, &nullable_terms);
 
-        let got = follow_set.sets.into_iter().collect::<Vec<_>>();
-        let expected = vec![(
-            Symbol::new("<parens>"),
-            [Token::new("("), Token::new(")"), Token::new("<$>")]
-                .into_iter()
-                .collect::<HashSet<_>>(),
-        )];
+        let follow_set = build_follow_set(&grammar_table, &first_sets);
 
-        assert_eq!(expected, got)
+        let mut got = follow_set.sets.into_iter().collect::<Vec<_>>();
+        got.sort_by(|(a, _), (b, _)| a.as_ref().cmp(b.as_ref()));
+
+        let expected = vec![
+            (
+                Symbol::new("<E>"),
+                [Token::new("<$>"), Token::new(")")]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
+                Symbol::new("<T>"),
+                [Token::new("+"), Token::new(")"), Token::new("<$>")]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
+                Symbol::new("<goal>"),
+                [Token::new("<$>")].into_iter().collect::<HashSet<_>>(),
+            ),
+        ];
+
+        assert_eq!(got, expected)
+    }
+
+    #[test]
+    fn closure_generates_expected_value_for_item() {
+        let grammar = "<E> ::= <T>
+<E> ::= ( <E> )
+<T> ::= n
+<T> ::= + <T>
+<T> ::= <T> + n
+";
+
+        let grammar_table = load_grammar(grammar);
+
+        assert!(grammar_table.is_ok());
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+        let nullable_terms = find_nullable_nonterminals(&grammar_table);
+        let first_sets = build_first_set(&grammar_table, &nullable_terms);
+
+        let initial_rule = grammar_table.rules().next().unwrap();
+        let eof = grammar_table
+            .token_mapping(&Token::from(BuiltinTokens::Eof))
+            .unwrap();
+
+        let closure = closure(&grammar_table, ItemRef::new(initial_rule, 0, eof));
+
+        let _formatted_closure = closure
+            .items
+            .into_iter()
+            .map(|item_ref| {
+                let rule_ref = item_ref.production;
+
+                let dot_position = item_ref.dot_position;
+                let production = grammar_table
+                    .symbols()
+                    .nth(rule_ref.lhs.as_usize())
+                    .unwrap();
+                let mut rhs = rule_ref
+                    .rhs
+                    .iter()
+                    .filter_map(|sotr| match sotr {
+                        SymbolOrTokenRef::Symbol(sym_ref) => grammar_table
+                            .symbols()
+                            .nth(sym_ref.as_usize())
+                            .map(SymbolOrToken::Symbol),
+                        SymbolOrTokenRef::Token(tok_ref) => grammar_table
+                            .tokens()
+                            .nth(tok_ref.as_usize())
+                            .map(SymbolOrToken::Token),
+                    })
+                    .map(|sot| match sot {
+                        SymbolOrToken::Symbol(s) => s.to_string(),
+                        SymbolOrToken::Token(t) => t.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                rhs.insert(dot_position, ".".to_string());
+
+                let lookahead = grammar_table
+                    .tokens()
+                    .nth(item_ref.lookahead.as_usize())
+                    .unwrap();
+
+                format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
+            })
+            .collect::<String>();
+
+        //println!("{}", formatted_closure);
+        println!("{:#?}", build_follow_set(&grammar_table, &first_sets))
     }
 }

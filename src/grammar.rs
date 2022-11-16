@@ -267,6 +267,14 @@ impl GrammarTable {
         TokenIterator::new(self)
     }
 
+    pub(crate) fn symbol_mapping(&self, symbol: &Symbol) -> Option<SymbolRef> {
+        self.symbols.get(symbol.0).map(|id| SymbolRef(*id))
+    }
+
+    pub(crate) fn token_mapping(&self, token: &Token) -> Option<TokenRef> {
+        self.tokens.get(token.0).map(|id| TokenRef(*id))
+    }
+
     pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
         self.rules.iter()
     }
@@ -376,7 +384,6 @@ impl std::fmt::Display for GrammarLoadErrorKind {
             Self::NoTerminalProduction => {
                 write!(f, "grammar does not include a terminal production")
             }
-
             Self::InvalidRule => write!(f, "provided rule is invalid",),
             Self::ConflictingRule => write!(f, "provided rule conflicts with existing rule",),
         }
@@ -420,6 +427,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
     let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
     let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
+    grammar_table.add_symbol_mut("<goal>");
 
     // add default tokens
     let builtin_tokens = [
@@ -537,9 +545,21 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         .map(|rule_ref| rule_ref.lhs)
         .map(SymbolOrTokenRef::Symbol)
         .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
+
+    let eof_ref = grammar_table
+        .tokens
+        .get(BuiltinTokens::Eof.as_token())
+        .copied()
+        .map(TokenRef::new)
+        .map(SymbolOrTokenRef::Token)
+        // builtins are guaranteed to exist.
+        .unwrap();
     grammar_table.rules[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
+    grammar_table.rules[root_production.as_usize()]
+        .rhs
+        .push(eof_ref);
 
     Ok(grammar_table)
 }
@@ -594,7 +614,7 @@ mod tests {
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
 
-        assert_eq!(1, grammar_table.symbols.len());
+        assert_eq!(2, grammar_table.symbols.len());
         assert_eq!(9, grammar_table.tokens.len());
         assert_eq!(7, grammar_table.rules.len());
     }
@@ -645,6 +665,7 @@ mod tests {
 
         let mut symbol_iter = grammar_table.symbols();
 
+        assert_eq!(Some(Symbol("<goal>")), symbol_iter.next());
         assert_eq!(Some(Symbol("<expr>")), symbol_iter.next());
         assert_eq!(Some(Symbol("<addition>")), symbol_iter.next());
         assert_eq!(None, symbol_iter.next());
