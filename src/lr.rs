@@ -635,8 +635,6 @@ mod tests {
             closure.items.len() == 14,
             "{}",
             closure.printable_format(&grammar_table)
-        );
-
-        println!("{}", closure.printable_format(&grammar_table));
+        )
     }
 }
