@@ -128,7 +128,7 @@ impl std::fmt::Display for TokenRef {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SymbolOrTokenRef {
     Symbol(SymbolRef),
     Token(TokenRef),
@@ -143,7 +143,7 @@ impl std::fmt::Display for SymbolOrTokenRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub(crate) struct RuleRef {
     pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
@@ -212,6 +212,12 @@ impl<'a> std::fmt::Display for Symbol<'a> {
 impl<'a> From<BuiltinSymbols> for Symbol<'a> {
     fn from(val: BuiltinSymbols) -> Self {
         Self::new(val.as_symbol())
+    }
+}
+
+impl<'a> From<&'a str> for Symbol<'a> {
+    fn from(val: &'a str) -> Self {
+        Self::new(val)
     }
 }
 
