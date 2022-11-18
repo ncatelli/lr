@@ -756,6 +756,41 @@ mod tests {
             symbol_after_dot.into_iter()
         };
 
+        let symbol_after_dot = symbols_after_dot.next().unwrap();
+        let s0 = goto(&grammar_table, &s0, symbol_after_dot);
+        assert_eq!(s0.len(), 1,);
+        assert_eq!("<*> -> <E> . [<$>]\n", s0.printable_format(&grammar_table));
+    }
+
+    #[test]
+    fn collection_generates_expected_value_for_itemset() {
+        let grammar = TEST_GRAMMAR;
+        let grammar_table = load_grammar(grammar);
+
+        assert!(grammar_table.is_ok());
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+
+        let initial_rule = grammar_table.rules().next().unwrap();
+        let eof = grammar_table
+            .token_mapping(&Token::from(BuiltinTokens::Eof))
+            .unwrap();
+        let initial_item_set = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
+        let s0 = closure(&grammar_table, initial_item_set);
+        assert_eq!(s0.len(), 14);
+
+        let mut symbols_after_dot = {
+            let mut symbol_after_dot = s0
+                .items
+                .iter()
+                .filter_map(|item| item.symbol_after_dot().copied())
+                .collect::<Vec<_>>();
+            symbol_after_dot.dedup();
+
+            symbol_after_dot.into_iter()
+        };
+
         for (generation, expected_items) in [1, 5, 15, 3, 12]
             .into_iter()
             .enumerate()
