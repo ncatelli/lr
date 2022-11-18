@@ -62,12 +62,19 @@ impl BuiltinTokens {
     }
 }
 
-type ElementId = usize;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SymbolOrToken<'a> {
     Symbol(Symbol<'a>),
     Token(Token<'a>),
+}
+
+impl<'a> std::fmt::Display for SymbolOrToken<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SymbolOrToken::Symbol(s) => s.fmt(f),
+            SymbolOrToken::Token(t) => t.fmt(f),
+        }
+    }
 }
 
 /// A wrapper type for symbols that reference the grammar table.
@@ -306,6 +313,15 @@ impl GrammarTable {
 
     pub(crate) fn token_mapping(&self, token: &Token) -> Option<TokenRef> {
         self.tokens.get(token.0).map(|id| TokenRef(*id))
+    }
+
+    pub(crate) fn ref_to_concrete(&self, sotr: &SymbolOrTokenRef) -> Option<SymbolOrToken> {
+        match sotr {
+            SymbolOrTokenRef::Symbol(s) => {
+                self.symbols().nth(s.as_usize()).map(SymbolOrToken::Symbol)
+            }
+            SymbolOrTokenRef::Token(t) => self.tokens().nth(t.as_usize()).map(SymbolOrToken::Token),
+        }
     }
 
     pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {

@@ -495,7 +495,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     set
 }
 
-fn goto<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>, x: SymbolOrTokenRef) -> ItemSet<'a> {
+fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRef) -> ItemSet<'a> {
     /*
     Goto(I, X)
     Initialise J to be the empty set;
@@ -505,7 +505,7 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>, x: SymbolOrTokenRef
     */
 
     // reverse the initial set so it can be popped.
-    let initial_set_items = i.items.into_iter().filter(|item_ref| {
+    let initial_set_items = i.items.iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
 
         symbol_after_dot == Some(&x)
@@ -745,14 +745,32 @@ mod tests {
         let s0 = closure(&grammar_table, initial_item_set);
         assert_eq!(s0.len(), 14);
 
-        let mut symbol_after_dot = s0
-            .items
-            .iter()
-            .filter_map(|item| item.symbol_after_dot().copied())
-            .collect::<Vec<_>>();
-        symbol_after_dot.dedup();
-        let e_symbol_after_dot = symbol_after_dot.first().unwrap();
-        let s1 = goto(&grammar_table, s0, *e_symbol_after_dot);
-        assert_eq!(s1.len(), 1, "\n{}", s1.printable_format(&grammar_table));
+        let mut symbols_after_dot = {
+            let mut symbol_after_dot = s0
+                .items
+                .iter()
+                .filter_map(|item| item.symbol_after_dot().copied())
+                .collect::<Vec<_>>();
+            symbol_after_dot.dedup();
+
+            symbol_after_dot.into_iter()
+        };
+
+        for (generation, expected_items) in [1, 5, 15, 3, 12]
+            .into_iter()
+            .enumerate()
+            .map(|(gen, expected_rules)| (gen + 1, expected_rules))
+        {
+            let symbol_after_dot = symbols_after_dot.next().unwrap();
+            let state = goto(&grammar_table, &s0, symbol_after_dot);
+            assert_eq!(
+                state.len(),
+                expected_items,
+                "\ngeneration: {}\ntoken: {}\n{}",
+                generation,
+                grammar_table.ref_to_concrete(&symbol_after_dot).unwrap(),
+                state.printable_format(&grammar_table)
+            );
+        }
     }
 }
