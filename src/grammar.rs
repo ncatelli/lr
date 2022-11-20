@@ -315,6 +315,15 @@ impl GrammarTable {
         self.tokens.get(token.0).map(|id| TokenRef(*id))
     }
 
+    /// Similarly to token_mapping, this looks up a TokenRef, however the
+    /// builtin guaranteed removes the need to return an Option.
+    pub(crate) fn builtin_token_mapping(&self, token: &BuiltinTokens) -> TokenRef {
+        self.tokens
+            .get(token.as_token())
+            .map(|id| TokenRef(*id))
+            .unwrap()
+    }
+
     pub(crate) fn ref_to_concrete(&self, sotr: &SymbolOrTokenRef) -> Option<SymbolOrToken> {
         match sotr {
             SymbolOrTokenRef::Symbol(s) => {

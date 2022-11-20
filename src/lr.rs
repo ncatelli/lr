@@ -118,6 +118,15 @@ impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
 
 pub struct LrParser;
 
+fn initial_item_set<'a>(grammar_table: &'a GrammarTable) -> ItemSet<'a> {
+    let eof_token_ref = grammar_table.builtin_token_mapping(&BuiltinTokens::Eof);
+    grammar_table
+        .rules()
+        .take(1)
+        .map(|first_rule| ItemRef::new(first_rule, 0, eof_token_ref))
+        .collect::<ItemSet>()
+}
+
 fn build_first_set<'a>(
     grammar_table: &'a GrammarTable,
     nullable_nonterminals: &HashSet<Symbol<'a>>,
@@ -355,7 +364,7 @@ impl<'a> ItemRef<'a> {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
 struct ItemSet<'a> {
     items: Vec<ItemRef<'a>>,
 }
@@ -422,23 +431,50 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-struct ItemCollection<'a> {
-    item_sets: Vec<ItemSet<'a>>,
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
+enum ItemSetParent {
+    Root,
+    Parent(usize),
 }
 
-fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
-    /*
-    Closure(I)
-    repeat
-        for (each item [ A -> ?.B?, a ] in I )
-            for (each production B -> ? in G’)
-              for (each terminal b in FIRST(?a))
-                add [ B -> .? , b ] to set I;
-    until no more items are added to I;
-    return I;
-    */
+impl Default for ItemSetParent {
+    fn default() -> Self {
+        Self::Root
+    }
+}
 
+impl PartialOrd for ItemSetParent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+
+        match (self, other) {
+            (ItemSetParent::Root, ItemSetParent::Root) => Some(Ordering::Equal),
+            (ItemSetParent::Root, ItemSetParent::Parent(_)) => Some(Ordering::Less),
+            (ItemSetParent::Parent(_), ItemSetParent::Root) => Some(Ordering::Greater),
+            (ItemSetParent::Parent(a), ItemSetParent::Parent(b)) => a.partial_cmp(b),
+        }
+    }
+}
+
+impl Ord for ItemSetParent {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+/// Generates the closure of a `ItemSet` using the following algorithm.
+///
+/// ```ignore
+/// Closure(I)
+/// repeat
+///     for (each item [ A -> ?.B?, a ] in I )
+///         for (each production B -> ? in G’)
+///           for (each terminal b in FIRST(?a))
+///             add [ B -> .? , b ] to set I;
+/// until no more items are added to I;
+/// return I;
+/// ```
+fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     // if the itemset is empty exit early
     if i.is_empty() {
         return i;
@@ -495,23 +531,24 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     set
 }
 
+/// Generates the goto of an `ItemSet` using the following algorithm.
+///
+/// ```ignore
+/// Goto(I, X)
+/// Initialise J to be the empty set;
+/// for ( each item A -> ?.X?, a ] in I )
+///     Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
+/// return Closure(J);    /* apply closure to the set */
+/// ```
 fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRef) -> ItemSet<'a> {
-    /*
-    Goto(I, X)
-    Initialise J to be the empty set;
-    for ( each item A -> ?.X?, a ] in I )
-        Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
-    return Closure(J);    /* apply closure to the set */
-    */
-
     // reverse the initial set so it can be popped.
-    let initial_set_items = i.items.iter().filter(|item_ref| {
+    let symbols_after_dot = i.items.iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
 
         symbol_after_dot == Some(&x)
     });
 
-    let j = initial_set_items
+    let j = symbols_after_dot
         .into_iter()
         .filter_map(|item| item.to_next_dot_postion())
         .collect();
@@ -519,18 +556,142 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRe
     closure(grammar_table, j)
 }
 
+#[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
+struct ItemSetWithParent<'a> {
+    parent_id: ItemSetParent,
+    set: ItemSet<'a>,
+}
+
+impl<'a> ItemSetWithParent<'a> {
+    fn new(parent_id: ItemSetParent, set: ItemSet<'a>) -> Self {
+        Self { parent_id, set }
+    }
+}
+
+impl<'a> PartialEq<ItemSet<'a>> for ItemSetWithParent<'a> {
+    fn eq(&self, other: &ItemSet<'a>) -> bool {
+        &self.set == other
+    }
+}
+
+/// Contains the canonical collection of `ItemSet` states ordered by their
+/// state id.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+struct ItemCollection<'a> {
+    /// stores the next state id to be inserted.
+    item_sets: Vec<ItemSetWithParent<'a>>,
+}
+
+impl<'a> ItemCollection<'a> {
+    fn states(&self) -> usize {
+        self.item_sets.len()
+    }
+
+    /// Returns a boolean signifying a value is already in the set.
+    fn contains(&self, new_set: &ItemSetWithParent<'a>) -> bool {
+        self.item_sets.iter().any(|i| i == new_set)
+    }
+
+    /// inserts a value into the collection, returning `true` if the set does
+    /// not contain the value.
+    fn insert(&mut self, new_set: ItemSetWithParent<'a>) -> bool {
+        let already_present = self.contains(&new_set);
+        if !already_present {
+            self.item_sets.push(new_set);
+        }
+
+        !already_present
+    }
+
+    fn into_ordered_iter(self) -> OrderedItemCollectionIter<'a> {
+        let item_sets = self.item_sets.iter().cloned().collect::<Vec<_>>();
+
+        OrderedItemCollectionIter(item_sets)
+    }
+}
+
+impl<'a> IntoIterator for ItemCollection<'a> {
+    type Item = ItemSetWithParent<'a>;
+
+    type IntoIter = OrderedItemCollectionIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_ordered_iter()
+    }
+}
+
+/// Provides an ordered iterator over the `ItemSet`'s contained in a in a
+/// canonical collection.
+struct OrderedItemCollectionIter<'a>(Vec<ItemSetWithParent<'a>>);
+
+impl<'a> Iterator for OrderedItemCollectionIter<'a> {
+    type Item = ItemSetWithParent<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.pop()
+    }
+}
+
+/// Constructs a canonical collection from a GrammarTable using the following algorithm.
+///
+/// ```ignore
+/// s0 ← closure ( [S’→S,EOF] )
+/// S ← {s0 }
+/// k ← 1
+/// while (S is still changing )
+/// ∀ sj ∈ S and ∀ x ∈ ( T ∪ NT )
+///     sk ← goto(sj ,x)
+///     record sj → sk on x
+/// if sk ∉ S then
+///     S ← S ∪ sk
+///     k ← k + 1
+/// ```
 fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
-    let first_rule = grammar_table.rules().next().unwrap();
+    let mut collection = ItemCollection::default();
+    let initial_item_set = initial_item_set(grammar_table);
 
-    let mut i0 = ItemSet::default();
-    let eof_token_ref = grammar_table
-        .token_mapping(&Token::from(BuiltinTokens::Eof))
-        .unwrap();
-    i0.items.push(ItemRef::new(first_rule, 0, eof_token_ref));
+    let s0 = closure(grammar_table, initial_item_set);
+    let s0 = ItemSetWithParent::new(ItemSetParent::Root, s0);
 
-    let _collection = ItemCollection::default();
+    let mut changing = collection.insert(s0);
+    let mut new_states = vec![];
 
-    todo!()
+    while changing {
+        changing = false;
+
+        for (state_id, state) in collection.item_sets.iter().enumerate() {
+            let parent = ItemSetParent::Parent(state_id);
+            let symbols_after_dot = {
+                let mut symbol_after_dot = state
+                    .set
+                    .items
+                    .iter()
+                    .filter_map(|item| item.symbol_after_dot().copied())
+                    .collect::<Vec<_>>();
+                symbol_after_dot.dedup();
+
+                symbol_after_dot.into_iter()
+            };
+
+            for symbol_after_dot in symbols_after_dot {
+                let new_state = goto(grammar_table, &state.set, symbol_after_dot);
+                let new_state = ItemSetWithParent::new(parent, new_state);
+
+                if !collection.contains(&new_state) {
+                    new_states.push(new_state);
+                }
+            }
+        }
+
+        for new_state in new_states {
+            // if there are new states to insert, mark the collection as
+            // changing.
+            changing = collection.insert(new_state);
+        }
+        new_states = vec![];
+    }
+
+    collection
 }
 
 /// Build a LR(1) parser from a given grammar.
@@ -737,11 +898,7 @@ mod tests {
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
 
-        let initial_rule = grammar_table.rules().next().unwrap();
-        let eof = grammar_table
-            .token_mapping(&Token::from(BuiltinTokens::Eof))
-            .unwrap();
-        let initial_item_set = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
+        let initial_item_set = initial_item_set(&grammar_table);
         let s0 = closure(&grammar_table, initial_item_set);
         assert_eq!(s0.len(), 14);
 
@@ -767,16 +924,11 @@ mod tests {
         let grammar = TEST_GRAMMAR;
         let grammar_table = load_grammar(grammar);
 
-        assert!(grammar_table.is_ok());
-
         // safe to unwrap with assertion.
+        assert!(grammar_table.is_ok());
         let grammar_table = grammar_table.unwrap();
 
-        let initial_rule = grammar_table.rules().next().unwrap();
-        let eof = grammar_table
-            .token_mapping(&Token::from(BuiltinTokens::Eof))
-            .unwrap();
-        let initial_item_set = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
+        let initial_item_set = initial_item_set(&grammar_table);
         let s0 = closure(&grammar_table, initial_item_set);
         assert_eq!(s0.len(), 14);
 
@@ -807,5 +959,19 @@ mod tests {
                 state.printable_format(&grammar_table)
             );
         }
+    }
+
+    #[test]
+    #[ignore = "unfinished"]
+    fn build_canonical_collection_generates_expected_states() {
+        let grammar = TEST_GRAMMAR;
+        let grammar_table = load_grammar(grammar);
+
+        // safe to unwrap with assertion.
+        assert!(grammar_table.is_ok());
+        let grammar_table = grammar_table.unwrap();
+
+        let collection = build_canonical_collection(&grammar_table);
+        assert_eq!(collection.states(), 5)
     }
 }
