@@ -229,7 +229,7 @@ impl<'a> From<&'a str> for Symbol<'a> {
 }
 
 /// A wrapper type for tokens borrowed from the grammar table.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Token<'a>(&'a str);
 
 impl<'a> Token<'a> {

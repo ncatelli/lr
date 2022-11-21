@@ -382,9 +382,9 @@ impl<'a> ItemSet<'a> {
         self.items.len()
     }
 
-    fn printable_format(self, grammar_table: &'a GrammarTable) -> String {
+    fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
         self.items
-            .into_iter()
+            .iter()
             .map(|item_ref| {
                 let rule_ref = item_ref.production;
 
@@ -506,7 +506,17 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 
             for non_terminal in non_terminals {
                 let non_terminal_symbol = symbols[non_terminal.as_usize()];
-                let follow_set = follow_sets.sets.get(&non_terminal_symbol).unwrap();
+                let follow_set = {
+                    let mut follow_set = follow_sets
+                        .sets
+                        .get(&non_terminal_symbol)
+                        .unwrap()
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>();
+                    follow_set.sort();
+                    follow_set
+                };
 
                 let matching_rules = grammar_table
                     .rules()
@@ -590,7 +600,7 @@ impl<'a> ItemCollection<'a> {
 
     /// Returns a boolean signifying a value is already in the set.
     fn contains(&self, new_set: &ItemSetWithParent<'a>) -> bool {
-        self.item_sets.iter().any(|i| i == new_set)
+        self.item_sets.iter().any(|i| i == (&new_set.set))
     }
 
     /// inserts a value into the collection, returning `true` if the set does
@@ -606,9 +616,23 @@ impl<'a> ItemCollection<'a> {
     }
 
     fn into_ordered_iter(self) -> OrderedItemCollectionIter<'a> {
-        let item_sets = self.item_sets.iter().cloned().collect::<Vec<_>>();
+        let item_sets = self.item_sets.to_vec();
 
         OrderedItemCollectionIter(item_sets)
+    }
+
+    fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
+        self.item_sets
+            .iter()
+            .enumerate()
+            .map(|(id, i)| {
+                format!(
+                    "\nS{}:\n{}",
+                    id,
+                    &i.set.human_readable_format(grammar_table)
+                )
+            })
+            .collect::<String>()
     }
 }
 
@@ -863,7 +887,7 @@ mod tests {
             closure_res.len() == 14,
             "expected 14 items, got {}\n{}",
             closure_res.len(),
-            closure_res.printable_format(&grammar_table)
+            closure_res.human_readable_format(&grammar_table)
         );
 
         let expected_lines = "
@@ -884,7 +908,7 @@ mod tests {
             .trim()
             .lines();
 
-        let got = closure_res.printable_format(&grammar_table);
+        let got = closure_res.human_readable_format(&grammar_table);
         for line in expected_lines {
             assert!(got.contains(line));
         }
@@ -906,7 +930,7 @@ mod tests {
         let s0 = closure(&grammar_table, s0);
         assert_eq!(s0.len(), 10);
         assert!(s0
-            .printable_format(&grammar_table)
+            .human_readable_format(&grammar_table)
             .contains("<F> -> . <identifier> [*]"));
     }
 
@@ -938,7 +962,10 @@ mod tests {
         let symbol_after_dot = symbols_after_dot.next().unwrap();
         let s0 = goto(&grammar_table, &s0, symbol_after_dot);
         assert_eq!(s0.len(), 1,);
-        assert_eq!("<*> -> <E> . [<$>]\n", s0.printable_format(&grammar_table));
+        assert_eq!(
+            "<*> -> <E> . [<$>]\n",
+            s0.human_readable_format(&grammar_table)
+        );
     }
 
     #[test]
@@ -978,13 +1005,12 @@ mod tests {
                 "\ngeneration: {}\ntoken: {}\n{}",
                 generation,
                 grammar_table.ref_to_concrete(&symbol_after_dot).unwrap(),
-                state.printable_format(&grammar_table)
+                state.human_readable_format(&grammar_table)
             );
         }
     }
 
     #[test]
-    #[ignore = "unfinished"]
     fn build_canonical_collection_generates_expected_states() {
         let grammar = "
 <E> ::= <T> - <E>
@@ -999,7 +1025,11 @@ mod tests {
         let grammar_table = grammar_table.unwrap();
 
         let collection = build_canonical_collection(&grammar_table);
-
-        assert_eq!(collection.states(), 8);
+        assert_eq!(
+            collection.states(),
+            9,
+            "{}",
+            collection.human_readable_format(&grammar_table)
+        );
     }
 }
