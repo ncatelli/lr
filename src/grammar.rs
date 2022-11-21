@@ -57,7 +57,7 @@ impl BuiltinTokens {
             BuiltinTokens::Integer => "<integer>",
             BuiltinTokens::Float => "<float>",
             BuiltinTokens::String => "<string>",
-            BuiltinTokens::Identifier => "<identifer>",
+            BuiltinTokens::Identifier => "<identifier>",
         }
     }
 }
