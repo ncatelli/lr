@@ -497,7 +497,6 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         changed = false;
 
         for item in set.items.clone() {
-            let item_symbol = symbols[item.production.lhs.as_usize()];
             let dot_position = item.dot_position;
             let items_after_dot = &item.production.rhs[dot_position..];
             let non_terminals = items_after_dot.iter().filter_map(|syms| match syms {
@@ -505,8 +504,10 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                 SymbolOrTokenRef::Token(_) => None,
             });
 
-            let follow_set = follow_sets.sets.get(&item_symbol).unwrap();
             for non_terminal in non_terminals {
+                let non_terminal_symbol = symbols[non_terminal.as_usize()];
+                let follow_set = follow_sets.sets.get(&non_terminal_symbol).unwrap();
+
                 let matching_rules = grammar_table
                     .rules()
                     .filter(|rule| rule.lhs == non_terminal);
@@ -600,6 +601,7 @@ impl<'a> ItemCollection<'a> {
             self.item_sets.push(new_set);
         }
 
+        // if it's not already present, then a value has been inserted.
         !already_present
     }
 
@@ -648,8 +650,8 @@ impl<'a> Iterator for OrderedItemCollectionIter<'a> {
 /// ```
 fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     let mut collection = ItemCollection::default();
-    let initial_item_set = initial_item_set(grammar_table);
 
+    let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
     let s0 = ItemSetWithParent::new(ItemSetParent::Root, s0);
 
@@ -854,14 +856,14 @@ mod tests {
             .token_mapping(&Token::from(BuiltinTokens::Eof))
             .unwrap();
 
-        let initial_item_set = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
-        let closure = closure(&grammar_table, initial_item_set);
+        let s0 = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
+        let closure_res = closure(&grammar_table, s0);
 
         assert!(
-            closure.len() == 14,
+            closure_res.len() == 14,
             "expected 14 items, got {}\n{}",
-            closure.len(),
-            closure.printable_format(&grammar_table)
+            closure_res.len(),
+            closure_res.printable_format(&grammar_table)
         );
 
         let expected_lines = "
@@ -882,10 +884,30 @@ mod tests {
             .trim()
             .lines();
 
-        let got = closure.printable_format(&grammar_table);
+        let got = closure_res.printable_format(&grammar_table);
         for line in expected_lines {
             assert!(got.contains(line));
         }
+
+        let grammar = "
+<E> ::= <T> - <E>
+<E> ::= <T>
+<T> ::= <F> * <T>
+<T> ::= <F>
+<F> ::= <identifier>";
+        let grammar_table = load_grammar(grammar);
+
+        assert!(grammar_table.is_ok());
+
+        // safe to unwrap with assertion.
+        let grammar_table = grammar_table.unwrap();
+
+        let s0 = initial_item_set(&grammar_table);
+        let s0 = closure(&grammar_table, s0);
+        assert_eq!(s0.len(), 10);
+        assert!(s0
+            .printable_format(&grammar_table)
+            .contains("<F> -> . <identifier> [*]"));
     }
 
     #[test]
@@ -964,7 +986,12 @@ mod tests {
     #[test]
     #[ignore = "unfinished"]
     fn build_canonical_collection_generates_expected_states() {
-        let grammar = TEST_GRAMMAR;
+        let grammar = "
+<E> ::= <T> - <E>
+<E> ::= <T>
+<T> ::= <F> * <T>
+<T> ::= <F>
+<F> ::= <identifier>";
         let grammar_table = load_grammar(grammar);
 
         // safe to unwrap with assertion.
@@ -972,6 +999,7 @@ mod tests {
         let grammar_table = grammar_table.unwrap();
 
         let collection = build_canonical_collection(&grammar_table);
-        assert_eq!(collection.states(), 5)
+
+        assert_eq!(collection.states(), 8);
     }
 }
