@@ -364,6 +364,7 @@ impl<'a> ItemRef<'a> {
     }
 }
 
+/// ItemSet contains an ordered list of item references.
 #[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
 struct ItemSet<'a> {
     items: Vec<ItemRef<'a>>,
@@ -378,8 +379,14 @@ impl<'a> ItemSet<'a> {
         self.items.is_empty()
     }
 
+    /// returns the length of the item set.
     fn len(&self) -> usize {
         self.items.len()
+    }
+
+    /// Returns a boolean signifying if the passed item exists in the item set.
+    fn contains(&self, item: &ItemRef<'a>) -> bool {
+        self.items.contains(item)
     }
 
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
@@ -701,10 +708,20 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, &state.set, symbol_after_dot);
-                let new_state = ItemSetWithParent::new(parent, new_state);
 
-                if !collection.contains(&new_state) {
-                    new_states.push(new_state);
+                // Strips any items from the new state that exist in the parent
+                // state.
+                let non_duplicate_items = new_state
+                    .items
+                    .into_iter()
+                    .filter(|item| !state.set.contains(item));
+
+                // Constructs the new state from the non duplicate item set, assigining a parent.
+                let new_non_duplicate_state =
+                    ItemSetWithParent::new(parent, non_duplicate_items.collect());
+
+                if !collection.contains(&new_non_duplicate_state) {
+                    new_states.push(new_non_duplicate_state);
                 }
             }
         }
@@ -1031,5 +1048,16 @@ mod tests {
             "{}",
             collection.human_readable_format(&grammar_table)
         );
+
+        let expected_rules_per_state = [10, 1, 2, 4, 3, 10, 9, 1, 2];
+        let state_rules_assertion_tuples = collection
+            .item_sets
+            .iter()
+            .map(|state| state.set.len())
+            .enumerate()
+            .zip(expected_rules_per_state.into_iter());
+        for ((sid, items_in_state), expected_items) in state_rules_assertion_tuples {
+            assert_eq!((sid, items_in_state), (sid, expected_items))
+        }
     }
 }
