@@ -574,30 +574,12 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRe
     closure(grammar_table, j)
 }
 
-#[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
-struct ItemSetWithParent<'a> {
-    parent_id: ItemSetParent,
-    set: ItemSet<'a>,
-}
-
-impl<'a> ItemSetWithParent<'a> {
-    fn new(parent_id: ItemSetParent, set: ItemSet<'a>) -> Self {
-        Self { parent_id, set }
-    }
-}
-
-impl<'a> PartialEq<ItemSet<'a>> for ItemSetWithParent<'a> {
-    fn eq(&self, other: &ItemSet<'a>) -> bool {
-        &self.set == other
-    }
-}
-
 /// Contains the canonical collection of `ItemSet` states ordered by their
 /// state id.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct ItemCollection<'a> {
     /// stores the next state id to be inserted.
-    item_sets: Vec<ItemSetWithParent<'a>>,
+    item_sets: Vec<ItemSet<'a>>,
 }
 
 impl<'a> ItemCollection<'a> {
@@ -606,13 +588,13 @@ impl<'a> ItemCollection<'a> {
     }
 
     /// Returns a boolean signifying a value is already in the set.
-    fn contains(&self, new_set: &ItemSetWithParent<'a>) -> bool {
-        self.item_sets.iter().any(|i| i == (&new_set.set))
+    fn contains(&self, new_set: &ItemSet<'a>) -> bool {
+        self.item_sets.iter().any(|i| i == new_set)
     }
 
     /// inserts a value into the collection, returning `true` if the set does
     /// not contain the value.
-    fn insert(&mut self, new_set: ItemSetWithParent<'a>) -> bool {
+    fn insert(&mut self, new_set: ItemSet<'a>) -> bool {
         let already_present = self.contains(&new_set);
         if !already_present {
             self.item_sets.push(new_set);
@@ -632,19 +614,13 @@ impl<'a> ItemCollection<'a> {
         self.item_sets
             .iter()
             .enumerate()
-            .map(|(id, i)| {
-                format!(
-                    "\nS{}:\n{}",
-                    id,
-                    &i.set.human_readable_format(grammar_table)
-                )
-            })
+            .map(|(id, i)| format!("\nS{}:\n{}", id, &i.human_readable_format(grammar_table)))
             .collect::<String>()
     }
 }
 
 impl<'a> IntoIterator for ItemCollection<'a> {
-    type Item = ItemSetWithParent<'a>;
+    type Item = ItemSet<'a>;
 
     type IntoIter = OrderedItemCollectionIter<'a>;
 
@@ -655,10 +631,10 @@ impl<'a> IntoIterator for ItemCollection<'a> {
 
 /// Provides an ordered iterator over the `ItemSet`'s contained in a in a
 /// canonical collection.
-struct OrderedItemCollectionIter<'a>(Vec<ItemSetWithParent<'a>>);
+struct OrderedItemCollectionIter<'a>(Vec<ItemSet<'a>>);
 
 impl<'a> Iterator for OrderedItemCollectionIter<'a> {
-    type Item = ItemSetWithParent<'a>;
+    type Item = ItemSet<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.pop()
@@ -684,7 +660,6 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
     let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
-    let s0 = ItemSetWithParent::new(ItemSetParent::Root, s0);
 
     let mut changing = collection.insert(s0);
     let mut new_states = vec![];
@@ -696,7 +671,6 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             let parent = ItemSetParent::Parent(state_id);
             let symbols_after_dot = {
                 let mut symbol_after_dot = state
-                    .set
                     .items
                     .iter()
                     .filter_map(|item| item.symbol_after_dot().copied())
@@ -707,18 +681,17 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             };
 
             for symbol_after_dot in symbols_after_dot {
-                let new_state = goto(grammar_table, &state.set, symbol_after_dot);
+                let new_state = goto(grammar_table, &state, symbol_after_dot);
 
                 // Strips any items from the new state that exist in the parent
                 // state.
                 let non_duplicate_items = new_state
                     .items
                     .into_iter()
-                    .filter(|item| !state.set.contains(item));
+                    .filter(|item| !state.contains(item));
 
                 // Constructs the new state from the non duplicate item set, assigining a parent.
-                let new_non_duplicate_state =
-                    ItemSetWithParent::new(parent, non_duplicate_items.collect());
+                let new_non_duplicate_state = non_duplicate_items.collect();
 
                 if !collection.contains(&new_non_duplicate_state) {
                     new_states.push(new_non_duplicate_state);
@@ -735,6 +708,47 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     }
 
     collection
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TableAction {
+    Accept,
+    Shift(usize),
+    Reduce(usize),
+    Invalid,
+}
+
+impl Default for TableAction {
+    fn default() -> Self {
+        Self::Invalid
+    }
+}
+
+pub(crate) struct LrTable {}
+
+/// Constructs action table from a canonical collection.
+///
+/// ```ignore
+/// ∀ set sx ∈ S
+///     ∀ item i ∈ sx
+///         if i is [A → β •ad,b] and goto(sx ,a) = sk , a ∈ T
+///             then ACTION[x,a] ← “shift k”
+///         else if i is [S’→S •, EOF]
+///             then ACTION[x ,a] ← “accept”
+///         else if i is [A →β •,a]
+///             then ACTION[x,a] ← “reduce A → β”
+///     ∀ n ∈ NT
+///         if goto(sx ,n) = s k
+///             then GOTO [x,n] ← k
+/// ```
+fn build_table<'a>(
+    grammar_table: &'a GrammarTable,
+    canonical_collection: &ItemCollection<'a>,
+) -> Result<(), ParserGenError> {
+    for sx in canonical_collection.clone().into_ordered_iter() {
+        for i in &sx.items {}
+    }
+    todo!()
 }
 
 /// Build a LR(1) parser from a given grammar.
@@ -1053,7 +1067,7 @@ mod tests {
         let state_rules_assertion_tuples = collection
             .item_sets
             .iter()
-            .map(|state| state.set.len())
+            .map(|state| state.len())
             .enumerate()
             .zip(expected_rules_per_state.into_iter());
         for ((sid, items_in_state), expected_items) in state_rules_assertion_tuples {
