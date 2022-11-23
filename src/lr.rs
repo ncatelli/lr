@@ -578,7 +578,8 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRe
 /// state id.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct ItemCollection<'a> {
-    /// stores the next state id to be inserted.
+    /// Stores a mapping of each child set spawned from the item set.
+    child_mapping: Vec<Vec<usize>>,
     item_sets: Vec<ItemSet<'a>>,
 }
 
@@ -594,10 +595,27 @@ impl<'a> ItemCollection<'a> {
 
     /// inserts a value into the collection, returning `true` if the set does
     /// not contain the value.
-    fn insert(&mut self, new_set: ItemSet<'a>) -> bool {
+    fn insert(&mut self, parent: ItemSetParent, new_set: ItemSet<'a>) -> bool {
         let already_present = self.contains(&new_set);
         if !already_present {
             self.item_sets.push(new_set);
+            self.child_mapping.push(vec![]);
+
+            // add the new set to the parent's child mapping.
+            let child_id = self.item_sets.len();
+            match parent {
+                ItemSetParent::Root => (),
+                ItemSetParent::Parent(parent_id) => {
+                    let _ = self
+                        .child_mapping
+                        .get_mut(parent_id)
+                        .map(|parent_child_set| {
+                            if !parent_child_set.contains(&child_id) {
+                                parent_child_set.push(child_id);
+                            }
+                        });
+                }
+            };
         }
 
         // if it's not already present, then a value has been inserted.
@@ -661,16 +679,17 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
 
-    let mut changing = collection.insert(s0);
+    let mut changing = collection.insert(ItemSetParent::Root, s0);
     let mut new_states = vec![];
 
     while changing {
         changing = false;
 
-        for (state_id, state) in collection.item_sets.iter().enumerate() {
-            let parent = ItemSetParent::Parent(state_id);
+        for (parent_state_id, parent_state) in collection.item_sets.iter().enumerate() {
+            let parent = ItemSetParent::Parent(parent_state_id);
+            let parent_state_mapping = ItemSetParent::Parent(parent_state_id);
             let symbols_after_dot = {
-                let mut symbol_after_dot = state
+                let mut symbol_after_dot = parent_state
                     .items
                     .iter()
                     .filter_map(|item| item.symbol_after_dot().copied())
@@ -681,28 +700,28 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             };
 
             for symbol_after_dot in symbols_after_dot {
-                let new_state = goto(grammar_table, &state, symbol_after_dot);
+                let new_state = goto(grammar_table, &parent_state, symbol_after_dot);
 
                 // Strips any items from the new state that exist in the parent
                 // state.
                 let non_duplicate_items = new_state
                     .items
                     .into_iter()
-                    .filter(|item| !state.contains(item));
+                    .filter(|item| !parent_state.contains(item));
 
                 // Constructs the new state from the non duplicate item set, assigining a parent.
                 let new_non_duplicate_state = non_duplicate_items.collect();
 
                 if !collection.contains(&new_non_duplicate_state) {
-                    new_states.push(new_non_duplicate_state);
+                    new_states.push((parent_state_mapping, new_non_duplicate_state));
                 }
             }
         }
 
-        for new_state in new_states {
+        for (parent_state_mapping, new_state) in new_states {
             // if there are new states to insert, mark the collection as
             // changing.
-            changing = collection.insert(new_state);
+            changing = collection.insert(parent_state_mapping, new_state);
         }
         new_states = vec![];
     }
@@ -711,20 +730,44 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TableAction {
+pub(crate) enum Action {
     Accept,
     Shift(usize),
     Reduce(usize),
     Invalid,
 }
 
-impl Default for TableAction {
+impl Default for Action {
     fn default() -> Self {
         Self::Invalid
     }
 }
 
-pub(crate) struct LrTable {}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Goto {
+    State(usize),
+    Invalid,
+}
+
+impl Default for Goto {
+    fn default() -> Self {
+        Self::Invalid
+    }
+}
+
+pub(crate) struct LrTable<'a> {
+    goto: Vec<HashMap<Token<'a>, Goto>>,
+    action: Vec<HashMap<Symbol<'a>, Action>>,
+}
+
+impl<'a> LrTable<'a> {
+    pub(crate) fn new(
+        goto: Vec<HashMap<Token<'a>, Goto>>,
+        action: Vec<HashMap<Symbol<'a>, Action>>,
+    ) -> Self {
+        Self { goto, action }
+    }
+}
 
 /// Constructs action table from a canonical collection.
 ///
@@ -744,16 +787,14 @@ pub(crate) struct LrTable {}
 fn build_table<'a>(
     grammar_table: &'a GrammarTable,
     canonical_collection: &ItemCollection<'a>,
-) -> Result<(), ParserGenError> {
+) -> Result<LrTable<'a>, ParserGenError> {
+    let mut goto: Vec<HashMap<Token<'a>, Goto>> = Vec::with_capacity(canonical_collection.states());
+    let mut action: Vec<HashMap<Symbol<'a>, Action>> =
+        Vec::with_capacity(canonical_collection.states());
+
     for sx in canonical_collection.clone().into_ordered_iter() {
         for i in &sx.items {}
     }
-    todo!()
-}
-
-/// Build a LR(1) parser from a given grammar.
-pub(crate) fn build_lr_parser(grammar_table: &GrammarTable) -> Result<LrParser, ParserGenError> {
-    let _nullable_nonterminal_productions = find_nullable_nonterminals(grammar_table);
 
     todo!()
 }
