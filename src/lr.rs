@@ -4,12 +4,14 @@ use crate::grammar::*;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParserGenErrorKind {
+    UnknownToken,
     Other,
 }
 
 impl std::fmt::Display for ParserGenErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::UnknownToken => write!(f, "token is undefined"),
             Self::Other => write!(f, "undefined load error"),
         }
     }
@@ -357,6 +359,16 @@ impl<'a> ItemRef<'a> {
         }
     }
 
+    /// Returns `Some(B)` in the production `[ A -> ?B.?, a ]`.
+    fn symbol_before_dot(&self) -> Option<&SymbolOrTokenRef> {
+        let dot_position = self.dot_position;
+        // Return None if the value is 0 already and will underflow
+        let position_before_dot = dot_position.checked_sub(1)?;
+
+        self.production.rhs.get(position_before_dot)
+    }
+
+    /// Returns `Some(B)` in the production `[ A -> ?.B?, a ]`.
     fn symbol_after_dot(&self) -> Option<&SymbolOrTokenRef> {
         let dot_position = self.dot_position;
 
@@ -579,7 +591,6 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRe
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct ItemCollection<'a> {
     /// Stores a mapping of each child set spawned from the item set.
-    child_mapping: Vec<Vec<usize>>,
     item_sets: Vec<ItemSet<'a>>,
 }
 
@@ -595,27 +606,10 @@ impl<'a> ItemCollection<'a> {
 
     /// inserts a value into the collection, returning `true` if the set does
     /// not contain the value.
-    fn insert(&mut self, parent: ItemSetParent, new_set: ItemSet<'a>) -> bool {
+    fn insert(&mut self, new_set: ItemSet<'a>) -> bool {
         let already_present = self.contains(&new_set);
         if !already_present {
             self.item_sets.push(new_set);
-            self.child_mapping.push(vec![]);
-
-            // add the new set to the parent's child mapping.
-            let child_id = self.item_sets.len();
-            match parent {
-                ItemSetParent::Root => (),
-                ItemSetParent::Parent(parent_id) => {
-                    let _ = self
-                        .child_mapping
-                        .get_mut(parent_id)
-                        .map(|parent_child_set| {
-                            if !parent_child_set.contains(&child_id) {
-                                parent_child_set.push(child_id);
-                            }
-                        });
-                }
-            };
         }
 
         // if it's not already present, then a value has been inserted.
@@ -679,15 +673,13 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
 
-    let mut changing = collection.insert(ItemSetParent::Root, s0);
+    let mut changing = collection.insert(s0);
     let mut new_states = vec![];
 
     while changing {
         changing = false;
 
         for (parent_state_id, parent_state) in collection.item_sets.iter().enumerate() {
-            let parent = ItemSetParent::Parent(parent_state_id);
-            let parent_state_mapping = ItemSetParent::Parent(parent_state_id);
             let symbols_after_dot = {
                 let mut symbol_after_dot = parent_state
                     .items
@@ -713,15 +705,15 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
                 let new_non_duplicate_state = non_duplicate_items.collect();
 
                 if !collection.contains(&new_non_duplicate_state) {
-                    new_states.push((parent_state_mapping, new_non_duplicate_state));
+                    new_states.push(new_non_duplicate_state);
                 }
             }
         }
 
-        for (parent_state_mapping, new_state) in new_states {
+        for (new_state) in new_states {
             // if there are new states to insert, mark the collection as
             // changing.
-            changing = collection.insert(parent_state_mapping, new_state);
+            changing = collection.insert(new_state);
         }
         new_states = vec![];
     }
@@ -788,12 +780,35 @@ fn build_table<'a>(
     grammar_table: &'a GrammarTable,
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable<'a>, ParserGenError> {
-    let mut goto: Vec<HashMap<Token<'a>, Goto>> = Vec::with_capacity(canonical_collection.states());
-    let mut action: Vec<HashMap<Symbol<'a>, Action>> =
+    let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let mut goto_table: Vec<HashMap<Token<'a>, Goto>> =
+        Vec::with_capacity(canonical_collection.states());
+    let mut action_table: Vec<HashMap<Symbol<'a>, Action>> =
         Vec::with_capacity(canonical_collection.states());
 
-    for sx in canonical_collection.clone().into_ordered_iter() {
-        for i in &sx.items {}
+    for (sx_id, sx) in canonical_collection.clone().into_ordered_iter().enumerate() {
+        let items = &sx.items;
+
+        for i in items {
+            let symbol_after_dot = i.symbol_after_dot().copied();
+            let lookahead_token = tokens.get(i.lookahead.as_usize()).ok_or_else(|| {
+                ParserGenError::new(ParserGenErrorKind::UnknownToken)
+                    .with_data(format!("{}", &i.lookahead))
+            })?;
+
+            let is_goal = Some(i.production.lhs)
+                == grammar_table.symbol_mapping(&Symbol::from(BuiltinSymbols::Goal));
+            let is_goal_acceptor = is_goal
+                && symbol_after_dot.is_none()
+                && (*lookahead_token == Token::from(BuiltinTokens::Eof));
+
+            // if not the last symbol, setup a shift
+            if let Some(_a) = symbol_after_dot {
+            }
+            // if it's the start action, accept
+            else if is_goal_acceptor {
+            }
+        }
     }
 
     todo!()
