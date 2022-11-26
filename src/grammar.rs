@@ -6,14 +6,6 @@ pub(crate) enum BuiltinSymbols {
 }
 
 impl BuiltinSymbols {
-    pub(crate) fn is_builtin<S: AsRef<str>>(symbol_str: S) -> bool {
-        let val = symbol_str.as_ref();
-        [Self::Goal]
-            .iter()
-            .map(|builtin| builtin.as_symbol())
-            .any(|builtin| builtin == val)
-    }
-
     pub(crate) fn as_symbol(&self) -> &'static str {
         match self {
             Self::Goal => "<*>",
@@ -306,15 +298,6 @@ impl GrammarTable {
             .get(token.as_token())
             .map(|id| TokenRef(*id))
             .unwrap()
-    }
-
-    pub(crate) fn ref_to_concrete(&self, sotr: &SymbolOrTokenRef) -> Option<SymbolOrToken> {
-        match sotr {
-            SymbolOrTokenRef::Symbol(s) => {
-                self.symbols().nth(s.as_usize()).map(SymbolOrToken::Symbol)
-            }
-            SymbolOrTokenRef::Token(t) => self.tokens().nth(t.as_usize()).map(SymbolOrToken::Token),
-        }
     }
 
     pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {

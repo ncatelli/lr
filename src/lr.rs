@@ -1,23 +1,18 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::format,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::grammar::*;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParserGenErrorKind {
-    AmbiguousState,
     UnknownToken,
-    Other,
+    InvalidGrammar,
 }
 
 impl std::fmt::Display for ParserGenErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AmbiguousState => write!(f, "state is indeterminate"),
             Self::UnknownToken => write!(f, "token is undefined"),
-            Self::Other => write!(f, "undefined load error"),
+            Self::InvalidGrammar => write!(f, "grammar is invalid"),
         }
     }
 }
@@ -52,6 +47,11 @@ impl std::fmt::Display for ParserGenError {
     }
 }
 
+/// Exposes a trait for generating an LR table from a grammar.
+pub(crate) trait LrTableGenerator {
+    fn generate_table<G: AsRef<str>>(grammar: G) -> Result<LrTable, ParserGenError>;
+}
+
 #[derive(Debug, PartialEq)]
 struct SymbolTokenSet<'a> {
     sets: HashMap<Symbol<'a>, HashSet<Token<'a>>>,
@@ -74,14 +74,6 @@ impl<'a> SymbolTokenSet<'a> {
         self.sets
             .get_mut(&key)
             .map(|token_set| token_set.insert(token.into()))
-            .unwrap_or(false)
-    }
-
-    /// Returns a bool representing if a token is set for a given symbol.
-    fn contains_token(&self, key: &Symbol<'a>, token: &Token<'a>) -> bool {
-        self.sets
-            .get(key)
-            .map(|token_sets| token_sets.contains(token))
             .unwrap_or(false)
     }
 
@@ -123,9 +115,20 @@ impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
     }
 }
 
-pub struct LrParser;
+pub(crate) struct Lr1;
 
-fn initial_item_set<'a>(grammar_table: &'a GrammarTable) -> ItemSet<'a> {
+impl LrTableGenerator for Lr1 {
+    fn generate_table<G: AsRef<str>>(grammar: G) -> Result<LrTable, ParserGenError> {
+        let grammar_table = load_grammar(grammar).map_err(|e| {
+            ParserGenError::new(ParserGenErrorKind::InvalidGrammar).with_data(e.to_string())
+        })?;
+
+        let collection = build_canonical_collection(&grammar_table);
+        build_table(&grammar_table, &collection)
+    }
+}
+
+fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
     let eof_token_ref = grammar_table.builtin_token_mapping(&BuiltinTokens::Eof);
     grammar_table
         .rules()
@@ -284,7 +287,7 @@ fn build_follow_set<'a>(
     follow_set
 }
 
-fn find_nullable_nonterminals<'a>(grammar_table: &'a GrammarTable) -> HashSet<Symbol> {
+fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<Symbol> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut nullable_nonterminal_productions = HashSet::new();
@@ -364,15 +367,6 @@ impl<'a> ItemRef<'a> {
         }
     }
 
-    /// Returns `Some(B)` in the production `[ A -> ?B.?, a ]`.
-    fn symbol_before_dot(&self) -> Option<&SymbolOrTokenRef> {
-        let dot_position = self.dot_position;
-        // Return None if the value is 0 already and will underflow
-        let position_before_dot = dot_position.checked_sub(1)?;
-
-        self.production.rhs.get(position_before_dot)
-    }
-
     /// Returns `Some(B)` in the production `[ A -> ?.B?, a ]`.
     fn symbol_after_dot(&self) -> Option<&SymbolOrTokenRef> {
         let dot_position = self.dot_position;
@@ -397,6 +391,7 @@ impl<'a> ItemSet<'a> {
     }
 
     /// returns the length of the item set.
+    #[allow(unused)]
     fn len(&self) -> usize {
         self.items.len()
     }
@@ -452,37 +447,6 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
     fn from_iter<T: IntoIterator<Item = ItemRef<'a>>>(iter: T) -> Self {
         let set = iter.into_iter().collect::<Vec<_>>();
         Self::new(set)
-    }
-}
-
-#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
-enum ItemSetParent {
-    Root,
-    Parent(usize),
-}
-
-impl Default for ItemSetParent {
-    fn default() -> Self {
-        Self::Root
-    }
-}
-
-impl PartialOrd for ItemSetParent {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-
-        match (self, other) {
-            (ItemSetParent::Root, ItemSetParent::Root) => Some(Ordering::Equal),
-            (ItemSetParent::Root, ItemSetParent::Parent(_)) => Some(Ordering::Less),
-            (ItemSetParent::Parent(_), ItemSetParent::Root) => Some(Ordering::Greater),
-            (ItemSetParent::Parent(a), ItemSetParent::Parent(b)) => a.partial_cmp(b),
-        }
-    }
-}
-
-impl Ord for ItemSetParent {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
     }
 }
 
@@ -632,6 +596,8 @@ impl<'a> ItemCollection<'a> {
         OrderedItemCollectionIter(item_sets)
     }
 
+    /// Prints a human readable representation of a given collection.
+    #[allow(unused)]
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
         self.item_sets
             .iter()
@@ -773,7 +739,9 @@ impl LrTable {
         }
     }
 
-    pub(crate) fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+    /// Outputs a human-readable representation of the grammar table.
+    #[allow(unused)]
+    fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
         const DEAD_STATE_STR: &str = " ";
 
         let left_side_padding = 8;
@@ -898,7 +866,7 @@ fn build_table<'a>(
 
             // if not the last symbol and it's a token, setup a shift.
             if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
-                let sk = goto(grammar_table, &sx, SymbolOrTokenRef::Token(a));
+                let sk = goto(grammar_table, sx, SymbolOrTokenRef::Token(a));
                 let k = canonical_collection.id_from_set(&sk);
 
                 if let Some(k) = k {
@@ -1245,7 +1213,19 @@ mod tests {
                 expected_items,
                 "\ngeneration: {}\ntoken: {}\n{}",
                 generation,
-                grammar_table.ref_to_concrete(&symbol_after_dot).unwrap(),
+                match symbol_after_dot {
+                    SymbolOrTokenRef::Symbol(s) => {
+                        grammar_table
+                            .symbols()
+                            .nth(s.as_usize())
+                            .map(SymbolOrToken::Symbol)
+                    }
+                    SymbolOrTokenRef::Token(t) => grammar_table
+                        .tokens()
+                        .nth(t.as_usize())
+                        .map(SymbolOrToken::Token),
+                }
+                .unwrap(),
                 state.human_readable_format(&grammar_table)
             );
         }
