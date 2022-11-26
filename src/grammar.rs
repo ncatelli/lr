@@ -26,27 +26,15 @@ pub(crate) enum BuiltinTokens {
     Epsilon,
     Eof,
     EndL,
-    Integer,
-    Float,
-    String,
-    Identifier,
 }
 
 impl BuiltinTokens {
     pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
         let val = token_str.as_ref();
-        [
-            Self::Epsilon,
-            Self::Eof,
-            Self::EndL,
-            Self::Integer,
-            Self::Float,
-            Self::String,
-            Self::Identifier,
-        ]
-        .iter()
-        .map(|builtin| builtin.as_token())
-        .any(|builtin| builtin == val)
+        [Self::Epsilon, Self::Eof, Self::EndL]
+            .iter()
+            .map(|builtin| builtin.as_token())
+            .any(|builtin| builtin == val)
     }
 
     pub(crate) fn as_token(&self) -> &'static str {
@@ -54,10 +42,6 @@ impl BuiltinTokens {
             BuiltinTokens::Epsilon => "<epsilon>",
             BuiltinTokens::Eof => "<$>",
             BuiltinTokens::EndL => "<endl>",
-            BuiltinTokens::Integer => "<integer>",
-            BuiltinTokens::Float => "<float>",
-            BuiltinTokens::String => "<string>",
-            BuiltinTokens::Identifier => "<identifier>",
         }
     }
 }
@@ -492,10 +476,6 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         BuiltinTokens::Epsilon,
         BuiltinTokens::Eof,
         BuiltinTokens::EndL,
-        BuiltinTokens::Integer,
-        BuiltinTokens::Float,
-        BuiltinTokens::String,
-        BuiltinTokens::Identifier,
     ];
 
     for builtin_tokens in builtin_tokens {
@@ -662,7 +642,8 @@ mod tests {
         let grammar_table = grammar_table.unwrap();
 
         assert_eq!(2, grammar_table.symbols.len());
-        assert_eq!(9, grammar_table.tokens.len());
+        // 3 builtins plus `(` and `)`
+        assert_eq!(5, grammar_table.tokens.len());
         assert_eq!(7, grammar_table.rules.len());
     }
 

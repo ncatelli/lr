@@ -787,7 +787,7 @@ impl LrTable {
                     .skip(1)
                     .map(|s| s.to_string()),
             )
-            .map(|t_or_s_str_repr| format!("{: >14}", t_or_s_str_repr))
+            .map(|t_or_s_str_repr| format!("{: >10}", t_or_s_str_repr))
             .collect::<String>();
         let table_width_without_left_side_padding = row_header.len();
 
@@ -817,21 +817,21 @@ impl LrTable {
                 let action_row = self.action.iter().map(|col| {
                     col.get(curr_state)
                         .map(|a| match a {
-                            Action::Accept => format!("{: >14}", "accept"),
-                            Action::Shift(id) => format!("{: >14}", format!("s{}", id)),
+                            Action::Accept => format!("{: >10}", "accept"),
+                            Action::Shift(id) => format!("{: >10}", format!("s{}", id)),
                             // rules are 1-indexed, when pretty printed
-                            Action::Reduce(id) => format!("{: >14}", format!("r{}", id + 1)),
-                            Action::Invalid => format!("{: >14}", DEAD_STATE_STR),
+                            Action::Reduce(id) => format!("{: >10}", format!("r{}", id + 1)),
+                            Action::Invalid => format!("{: >10}", DEAD_STATE_STR),
                         })
-                        .unwrap_or_else(|| format!("{: >14}", ""))
+                        .unwrap_or_else(|| format!("{: >10}", ""))
                 });
                 let goto_row = self.goto.iter().skip(1).map(|col| {
                     col.get(curr_state)
                         .map(|g| match g {
-                            Goto::State(id) => format!("{: >14}", id),
-                            Goto::Invalid => format!("{: >14}", DEAD_STATE_STR),
+                            Goto::State(id) => format!("{: >10}", id),
+                            Goto::Invalid => format!("{: >10}", DEAD_STATE_STR),
                         })
-                        .unwrap_or_else(|| format!("{: >14}", ""))
+                        .unwrap_or_else(|| format!("{: >10}", ""))
                 });
 
                 format!(
@@ -986,10 +986,10 @@ mod tests {
 <term> ::= <term> * <factor>
 <expr> ::= <term>
 <term> ::= <factor>
-<factor> ::= <integer>
+<factor> ::= 0
 ";
         let grammar_with_epsilon = "
- <term> ::= <integer>\n
+ <term> ::= 0\n
 <factor> ::= <epsilon>\n
         ";
 
@@ -1026,9 +1026,9 @@ mod tests {
     fn first_set_returns_expected_values() {
         let grammar = "<E> ::= <T>
 <E> ::= ( <E> )
-<T> ::= <integer>
+<T> ::= 0
 <T> ::= + <T>
-<T> ::= <T> + <integer>
+<T> ::= <T> + 0
 ";
 
         let grammar_table = load_grammar(grammar);
@@ -1045,19 +1045,19 @@ mod tests {
         let expected = vec![
             (
                 Symbol::from(BuiltinSymbols::Goal),
-                [Token::new("<integer>"), Token::new("+"), Token::new("(")]
+                [Token::new("0"), Token::new("+"), Token::new("(")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
             (
                 Symbol::new("<E>"),
-                [Token::new("<integer>"), Token::new("+"), Token::new("(")]
+                [Token::new("0"), Token::new("+"), Token::new("(")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
             (
                 Symbol::new("<T>"),
-                [Token::new("<integer>"), Token::new("+")]
+                [Token::new("0"), Token::new("+")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
@@ -1159,7 +1159,7 @@ mod tests {
 <E> ::= <T>
 <T> ::= <F> * <T>
 <T> ::= <F>
-<F> ::= <identifier>";
+<F> ::= n";
         let grammar_table = load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
@@ -1172,7 +1172,7 @@ mod tests {
         assert_eq!(s0.len(), 10);
         assert!(s0
             .human_readable_format(&grammar_table)
-            .contains("<F> -> . <identifier> [*]"));
+            .contains("<F> -> . n [*]"));
     }
 
     #[test]
@@ -1258,7 +1258,7 @@ mod tests {
 <E> ::= <T>
 <T> ::= <F> * <T>
 <T> ::= <F>
-<F> ::= <identifier>";
+<F> ::= n";
         let grammar_table = load_grammar(grammar);
 
         // safe to unwrap with assertion.
@@ -1292,7 +1292,7 @@ mod tests {
 <E> ::= <T>
 <T> ::= <F> * <T>
 <T> ::= <F>
-<F> ::= <identifier>";
+<F> ::= 1";
         let grammar_table = load_grammar(grammar);
 
         // safe to unwrap with assertion.
@@ -1303,5 +1303,8 @@ mod tests {
         let build_table_res = build_table(&grammar_table, &collection);
 
         assert!(build_table_res.is_ok());
+        let table = build_table_res.unwrap();
+
+        println!("{}", table.human_readable_format(&grammar_table))
     }
 }
