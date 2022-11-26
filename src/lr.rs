@@ -689,7 +689,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     while changing {
         changing = false;
 
-        for (parent_state_id, parent_state) in collection.item_sets.iter().enumerate() {
+        for parent_state in collection.item_sets.iter() {
             let symbols_after_dot = {
                 let mut symbol_after_dot = parent_state
                     .items
@@ -702,7 +702,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             };
 
             for symbol_after_dot in symbols_after_dot {
-                let new_state = goto(grammar_table, &parent_state, symbol_after_dot);
+                let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
                 // Strips any items from the new state that exist in the parent
                 // state.
@@ -720,7 +720,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             }
         }
 
-        for (new_state) in new_states {
+        for new_state in new_states {
             // if there are new states to insert, mark the collection as
             // changing.
             changing = collection.insert(new_state);
@@ -819,7 +819,8 @@ impl LrTable {
                         .map(|a| match a {
                             Action::Accept => format!("{: >14}", "accept"),
                             Action::Shift(id) => format!("{: >14}", format!("s{}", id)),
-                            Action::Reduce(id) => format!("{: >14}", format!("r{}", id)),
+                            // rules are 1-indexed, when pretty printed
+                            Action::Reduce(id) => format!("{: >14}", format!("r{}", id + 1)),
                             Action::Invalid => format!("{: >14}", DEAD_STATE_STR),
                         })
                         .unwrap_or_else(|| format!("{: >14}", ""))
@@ -943,10 +944,16 @@ fn build_table<'a>(
         //         then GOTO [x,n] ← k
         let nt = grammar_table
             .symbols()
+            .skip(1)
             .flat_map(|s| grammar_table.symbol_mapping(&s));
         for n in nt {
             let sk = goto(grammar_table, sx, SymbolOrTokenRef::Symbol(n));
-            let k = canonical_collection.id_from_set(&sk);
+
+            // find the first set that contains all elements of sk.
+            let k = canonical_collection
+                .item_sets
+                .iter()
+                .position(|sx| sk.items.starts_with(&sx.items));
 
             if let Some(k) = k {
                 goto_table[n.as_usize()][x] = Goto::State(k);
@@ -1296,8 +1303,5 @@ mod tests {
         let build_table_res = build_table(&grammar_table, &collection);
 
         assert!(build_table_res.is_ok());
-        let table = build_table_res.unwrap();
-
-        println!("{}", table.human_readable_format(&grammar_table));
     }
 }
