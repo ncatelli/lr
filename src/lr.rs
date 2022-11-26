@@ -774,7 +774,7 @@ impl LrTable {
     }
 
     pub(crate) fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
-        const DEAD_STATE_STR: &str = "0";
+        const DEAD_STATE_STR: &str = " ";
 
         let left_side_padding = 8;
         let row_header = grammar_table
