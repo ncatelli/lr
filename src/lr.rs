@@ -1,9 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::format,
+};
 
 use crate::grammar::*;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParserGenErrorKind {
+    AmbiguousState,
     UnknownToken,
     Other,
 }
@@ -11,6 +15,7 @@ pub enum ParserGenErrorKind {
 impl std::fmt::Display for ParserGenErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::AmbiguousState => write!(f, "state is indeterminate"),
             Self::UnknownToken => write!(f, "token is undefined"),
             Self::Other => write!(f, "undefined load error"),
         }
@@ -616,6 +621,11 @@ impl<'a> ItemCollection<'a> {
         !already_present
     }
 
+    /// Returns the set id of a given set if it exists within the collection.
+    fn id_from_set(&self, set: &ItemSet<'a>) -> Option<usize> {
+        self.item_sets.iter().position(|s| s == set)
+    }
+
     fn into_ordered_iter(self) -> OrderedItemCollectionIter<'a> {
         let item_sets = self.item_sets.to_vec();
 
@@ -747,17 +757,96 @@ impl Default for Goto {
     }
 }
 
-pub(crate) struct LrTable<'a> {
-    goto: Vec<HashMap<Token<'a>, Goto>>,
-    action: Vec<HashMap<Symbol<'a>, Action>>,
+#[derive(Debug)]
+pub(crate) struct LrTable {
+    states: usize,
+    goto: Vec<Vec<Goto>>,
+    action: Vec<Vec<Action>>,
 }
 
-impl<'a> LrTable<'a> {
-    pub(crate) fn new(
-        goto: Vec<HashMap<Token<'a>, Goto>>,
-        action: Vec<HashMap<Symbol<'a>, Action>>,
-    ) -> Self {
-        Self { goto, action }
+impl LrTable {
+    pub(crate) fn new(states: usize, goto: Vec<Vec<Goto>>, action: Vec<Vec<Action>>) -> Self {
+        Self {
+            states,
+            goto,
+            action,
+        }
+    }
+
+    pub(crate) fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+        const DEAD_STATE_STR: &str = "0";
+
+        let left_side_padding = 8;
+        let row_header = grammar_table
+            .tokens()
+            .map(|t| t.to_string())
+            .chain(
+                grammar_table
+                    .symbols()
+                    // skip the goal symbol
+                    .skip(1)
+                    .map(|s| s.to_string()),
+            )
+            .map(|t_or_s_str_repr| format!("{: >14}", t_or_s_str_repr))
+            .collect::<String>();
+        let table_width_without_left_side_padding = row_header.len();
+
+        let first_row = format!(
+            "{}{}",
+            " ".chars()
+                .cycle()
+                .take(left_side_padding)
+                .collect::<String>(),
+            &row_header
+        );
+        let table_padding = format!(
+            "{}{}",
+            " ".chars()
+                .cycle()
+                .take(left_side_padding)
+                .collect::<String>(),
+            "-".chars()
+                .cycle()
+                .take(table_width_without_left_side_padding)
+                .collect::<String>()
+        );
+
+        let rows = (0..self.states)
+            .into_iter()
+            .map(|curr_state| {
+                let action_row = self.action.iter().map(|col| {
+                    col.get(curr_state)
+                        .map(|a| match a {
+                            Action::Accept => format!("{: >14}", "accept"),
+                            Action::Shift(id) => format!("{: >14}", format!("s{}", id)),
+                            Action::Reduce(id) => format!("{: >14}", format!("r{}", id)),
+                            Action::Invalid => format!("{: >14}", DEAD_STATE_STR),
+                        })
+                        .unwrap_or_else(|| format!("{: >14}", ""))
+                });
+                let goto_row = self.goto.iter().skip(1).map(|col| {
+                    col.get(curr_state)
+                        .map(|g| match g {
+                            Goto::State(id) => format!("{: >14}", id),
+                            Goto::Invalid => format!("{: >14}", DEAD_STATE_STR),
+                        })
+                        .unwrap_or_else(|| format!("{: >14}", ""))
+                });
+
+                format!(
+                    "{: >6} |{}{}",
+                    curr_state,
+                    action_row.collect::<String>(),
+                    goto_row.collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>();
+
+        [first_row, table_padding]
+            .into_iter()
+            .chain(rows)
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -779,19 +868,23 @@ impl<'a> LrTable<'a> {
 fn build_table<'a>(
     grammar_table: &'a GrammarTable,
     canonical_collection: &ItemCollection<'a>,
-) -> Result<LrTable<'a>, ParserGenError> {
+) -> Result<LrTable, ParserGenError> {
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
-    let mut goto_table: Vec<HashMap<Token<'a>, Goto>> =
-        Vec::with_capacity(canonical_collection.states());
-    let mut action_table: Vec<HashMap<Symbol<'a>, Action>> =
-        Vec::with_capacity(canonical_collection.states());
+    let mut goto_table: Vec<Vec<Goto>> =
+        vec![vec![Goto::default(); canonical_collection.states()]; grammar_table.symbols().count()];
+    let mut action_table: Vec<Vec<Action>> =
+        vec![
+            vec![Action::default(); canonical_collection.states()];
+            grammar_table.tokens().count()
+        ];
 
-    for (sx_id, sx) in canonical_collection.clone().into_ordered_iter().enumerate() {
+    for (x, sx) in canonical_collection.item_sets.iter().enumerate() {
         let items = &sx.items;
 
         for i in items {
             let symbol_after_dot = i.symbol_after_dot().copied();
-            let lookahead_token = tokens.get(i.lookahead.as_usize()).ok_or_else(|| {
+            let lookahead_token_ref = &i.lookahead;
+            let lookahead_token = tokens.get(lookahead_token_ref.as_usize()).ok_or_else(|| {
                 ParserGenError::new(ParserGenErrorKind::UnknownToken)
                     .with_data(format!("{}", &i.lookahead))
             })?;
@@ -802,16 +895,70 @@ fn build_table<'a>(
                 && symbol_after_dot.is_none()
                 && (*lookahead_token == Token::from(BuiltinTokens::Eof));
 
-            // if not the last symbol, setup a shift
-            if let Some(_a) = symbol_after_dot {
+            // if not the last symbol and it's a token, setup a shift.
+            if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
+                let sk = goto(grammar_table, &sx, SymbolOrTokenRef::Token(a));
+                let k = canonical_collection.id_from_set(&sk);
+
+                if let Some(k) = k {
+                    action_table[a.as_usize()][x] = Action::Shift(k);
+                    continue;
+                }
             }
+
             // if it's the start action, accept
-            else if is_goal_acceptor {
+            if is_goal_acceptor {
+                // safe to unwrap, Eof builtin is guaranteed to exist.
+                let a = grammar_table
+                    .token_mapping(&Token::from(BuiltinTokens::Eof))
+                    .unwrap();
+
+                // Safe to assign without checks due all indexes being derived from known states.
+                action_table[a.as_usize()][x] = Action::Accept;
+
+            // else if i is [A →β •,a]
+            //     then ACTION[x,a] ← “reduce A → β”
+            } else if symbol_after_dot.is_none() {
+                let a = lookahead_token_ref;
+
+                // Generate a rule from the current productions. for matching the last state.
+                let parsed_production_lhs = i.production.lhs;
+                let parsed_production_rhs = &i.production.rhs[0..i.dot_position];
+                let production_from_stack =
+                    RuleRef::new(parsed_production_lhs, parsed_production_rhs.to_vec()).unwrap();
+
+                // TODO: Store the RuleId on the production.
+                let rule_id = grammar_table
+                    .rules()
+                    .position(|rule| rule == &production_from_stack);
+
+                if let Some(rule_id) = rule_id {
+                    action_table[a.as_usize()][x] = Action::Reduce(rule_id);
+                };
+            }
+        }
+
+        // ∀ n ∈ NT
+        //     if goto(sx ,n) = s k
+        //         then GOTO [x,n] ← k
+        let nt = grammar_table
+            .symbols()
+            .flat_map(|s| grammar_table.symbol_mapping(&s));
+        for n in nt {
+            let sk = goto(grammar_table, sx, SymbolOrTokenRef::Symbol(n));
+            let k = canonical_collection.id_from_set(&sk);
+
+            if let Some(k) = k {
+                goto_table[n.as_usize()][x] = Goto::State(k);
             }
         }
     }
 
-    todo!()
+    Ok(LrTable::new(
+        canonical_collection.states(),
+        goto_table,
+        action_table,
+    ))
 }
 
 #[cfg(test)]
@@ -1129,5 +1276,28 @@ mod tests {
         for ((sid, items_in_state), expected_items) in state_rules_assertion_tuples {
             assert_eq!((sid, items_in_state), (sid, expected_items))
         }
+    }
+
+    #[test]
+    fn should_build_expected_table_from_grammar() {
+        let grammar = "
+<E> ::= <T> - <E>
+<E> ::= <T>
+<T> ::= <F> * <T>
+<T> ::= <F>
+<F> ::= <identifier>";
+        let grammar_table = load_grammar(grammar);
+
+        // safe to unwrap with assertion.
+        assert!(grammar_table.is_ok());
+        let grammar_table = grammar_table.unwrap();
+
+        let collection = build_canonical_collection(&grammar_table);
+        let build_table_res = build_table(&grammar_table, &collection);
+
+        assert!(build_table_res.is_ok());
+        let table = build_table_res.unwrap();
+
+        println!("{}", table.human_readable_format(&grammar_table));
     }
 }

@@ -157,7 +157,7 @@ pub(crate) struct RuleRef {
 }
 
 impl RuleRef {
-    fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
+    pub(crate) fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
         let rule = Self::new_unchecked(lhs, rhs);
 
         if rule.is_valid() {
@@ -604,14 +604,6 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         .map(SymbolOrTokenRef::Symbol)
         .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
 
-    let eof_ref = grammar_table
-        .tokens
-        .get(BuiltinTokens::Eof.as_token())
-        .copied()
-        .map(TokenRef::new)
-        .map(SymbolOrTokenRef::Token)
-        // builtins are guaranteed to exist.
-        .unwrap();
     grammar_table.rules[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
