@@ -3,42 +3,40 @@ use std::collections::{HashMap, HashSet};
 use crate::grammar::*;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum ParserGenErrorKind {
+pub(crate) enum TableGenErrorKind {
     UnknownToken,
-    InvalidGrammar,
 }
 
-impl std::fmt::Display for ParserGenErrorKind {
+impl std::fmt::Display for TableGenErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownToken => write!(f, "token is undefined"),
-            Self::InvalidGrammar => write!(f, "grammar is invalid"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct ParserGenError {
-    kind: ParserGenErrorKind,
+pub struct TableGenError {
+    kind: TableGenErrorKind,
     data: Option<String>,
 }
 
-impl ParserGenError {
-    pub fn new(kind: ParserGenErrorKind) -> Self {
+impl TableGenError {
+    pub(crate) fn new(kind: TableGenErrorKind) -> Self {
         Self { kind, data: None }
     }
 
-    pub fn with_data_mut(&mut self, data: String) {
+    pub(crate) fn with_data_mut(&mut self, data: String) {
         self.data = Some(data)
     }
 
-    pub fn with_data(mut self, data: String) -> Self {
+    pub(crate) fn with_data(mut self, data: String) -> Self {
         self.with_data_mut(data);
         self
     }
 }
 
-impl std::fmt::Display for ParserGenError {
+impl std::fmt::Display for TableGenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.data {
             Some(ctx) => write!(f, "{}: {}", &self.kind, ctx),
@@ -49,7 +47,7 @@ impl std::fmt::Display for ParserGenError {
 
 /// Exposes a trait for generating an LR table from a grammar.
 pub(crate) trait LrTableGenerator {
-    fn generate_table<G: AsRef<str>>(grammar: G) -> Result<LrTable, ParserGenError>;
+    fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -118,13 +116,10 @@ impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
 pub(crate) struct Lr1;
 
 impl LrTableGenerator for Lr1 {
-    fn generate_table<G: AsRef<str>>(grammar: G) -> Result<LrTable, ParserGenError> {
-        let grammar_table = load_grammar(grammar).map_err(|e| {
-            ParserGenError::new(ParserGenErrorKind::InvalidGrammar).with_data(e.to_string())
-        })?;
+    fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError> {
+        let collection = build_canonical_collection(grammar_table);
 
-        let collection = build_canonical_collection(&grammar_table);
-        build_table(&grammar_table, &collection)
+        build_table(grammar_table, &collection)
     }
 }
 
@@ -837,7 +832,7 @@ impl LrTable {
 fn build_table<'a>(
     grammar_table: &'a GrammarTable,
     canonical_collection: &ItemCollection<'a>,
-) -> Result<LrTable, ParserGenError> {
+) -> Result<LrTable, TableGenError> {
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut goto_table: Vec<Vec<Goto>> =
         vec![vec![Goto::default(); canonical_collection.states()]; grammar_table.symbols().count()];
@@ -854,7 +849,7 @@ fn build_table<'a>(
             let symbol_after_dot = i.symbol_after_dot().copied();
             let lookahead_token_ref = &i.lookahead;
             let lookahead_token = tokens.get(lookahead_token_ref.as_usize()).ok_or_else(|| {
-                ParserGenError::new(ParserGenErrorKind::UnknownToken)
+                TableGenError::new(TableGenErrorKind::UnknownToken)
                     .with_data(format!("{}", &i.lookahead))
             })?;
 
