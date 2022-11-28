@@ -2,8 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::grammar::*;
 
+/// Markers for the type of error encountered in table generation.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TableGenErrorKind {
+    /// A token that did not match the grammar has been encounter.
     UnknownToken,
 }
 
@@ -15,6 +17,7 @@ impl std::fmt::Display for TableGenErrorKind {
     }
 }
 
+/// Represents errors that can occur in the table generation process.
 #[derive(Debug, PartialEq, Eq)]
 pub struct TableGenError {
     kind: TableGenErrorKind,
@@ -75,7 +78,7 @@ impl<'a> SymbolTokenSet<'a> {
             .unwrap_or(false)
     }
 
-    /// sets the tokens for `lhs` to the union of `lhs` and `rhs`.
+    /// Sets the tokens for `lhs` to the union of `lhs` and `rhs`.
     fn union_of_sets(&mut self, lhs: Symbol<'a>, rhs: &Symbol<'a>) -> bool {
         let mut changed = false;
 
@@ -113,6 +116,7 @@ impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
     }
 }
 
+/// A wrapper type for Lr1 Parser tables.
 pub(crate) struct Lr1;
 
 impl LrTableGenerator for Lr1 {
@@ -585,12 +589,6 @@ impl<'a> ItemCollection<'a> {
         self.item_sets.iter().position(|s| s == set)
     }
 
-    fn into_ordered_iter(self) -> OrderedItemCollectionIter<'a> {
-        let item_sets = self.item_sets.to_vec();
-
-        OrderedItemCollectionIter(item_sets)
-    }
-
     /// Prints a human readable representation of a given collection.
     #[allow(unused)]
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
@@ -605,22 +603,10 @@ impl<'a> ItemCollection<'a> {
 impl<'a> IntoIterator for ItemCollection<'a> {
     type Item = ItemSet<'a>;
 
-    type IntoIter = OrderedItemCollectionIter<'a>;
+    type IntoIter = std::vec::IntoIter<ItemSet<'a>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.into_ordered_iter()
-    }
-}
-
-/// Provides an ordered iterator over the `ItemSet`'s contained in a in a
-/// canonical collection.
-struct OrderedItemCollectionIter<'a>(Vec<ItemSet<'a>>);
-
-impl<'a> Iterator for OrderedItemCollectionIter<'a> {
-    type Item = ItemSet<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop()
+        self.item_sets.into_iter()
     }
 }
 
@@ -692,29 +678,34 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     collection
 }
 
+/// Represents one of 4 valid actions for the action table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
+    /// The goal state has been reached and a parse can be accepted.
     Accept,
+    /// Shift the input on to the token stream.
     Shift(usize),
+    /// Reduce the rule to a previous state and type.
     Reduce(usize),
-    Invalid,
+    /// No further actions for the parse.
+    DeadState,
 }
 
 impl Default for Action {
     fn default() -> Self {
-        Self::Invalid
+        Self::DeadState
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Goto {
     State(usize),
-    Invalid,
+    DeadState,
 }
 
 impl Default for Goto {
     fn default() -> Self {
-        Self::Invalid
+        Self::DeadState
     }
 }
 
@@ -784,7 +775,7 @@ impl LrTable {
                             Action::Shift(id) => format!("{: >10}", format!("s{}", id)),
                             // rules are 1-indexed, when pretty printed
                             Action::Reduce(id) => format!("{: >10}", format!("r{}", id + 1)),
-                            Action::Invalid => format!("{: >10}", DEAD_STATE_STR),
+                            Action::DeadState => format!("{: >10}", DEAD_STATE_STR),
                         })
                         .unwrap_or_else(|| format!("{: >10}", ""))
                 });
@@ -792,7 +783,7 @@ impl LrTable {
                     col.get(curr_state)
                         .map(|g| match g {
                             Goto::State(id) => format!("{: >10}", id),
-                            Goto::Invalid => format!("{: >10}", DEAD_STATE_STR),
+                            Goto::DeadState => format!("{: >10}", DEAD_STATE_STR),
                         })
                         .unwrap_or_else(|| format!("{: >10}", ""))
                 });
