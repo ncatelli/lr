@@ -3,7 +3,9 @@ use grammar::GrammarLoadError;
 mod grammar;
 mod lr;
 
+/// Represents the kind of table that can be generated
 pub enum GeneratorKind {
+    /// LR(1) Grammar
     Lr1,
 }
 
@@ -53,10 +55,7 @@ impl std::fmt::Display for Error {
 }
 
 #[allow(unused)]
-pub(crate) fn generate_table<G: AsRef<str>>(
-    kind: GeneratorKind,
-    grammar: G,
-) -> Result<lr::LrTable, Error> {
+fn generate_table<G: AsRef<str>>(kind: GeneratorKind, grammar: G) -> Result<lr::LrTable, Error> {
     use grammar::load_grammar;
 
     let grammar = grammar.as_ref();
