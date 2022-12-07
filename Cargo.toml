@@ -1,2 +1,2 @@
 [workspace]
-members = ["compiler"]
+members = ["generator_utils", "macros"]
