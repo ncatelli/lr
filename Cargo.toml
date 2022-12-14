@@ -1,2 +1,2 @@
 [workspace]
-members = ["generator_utils", "macros"]
+members = ["generator-utils", "lr-macros"]
