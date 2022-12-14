@@ -1,4 +1,5 @@
 use std::collections::hash_map::HashMap;
+use std::hash::Hash;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinSymbols {
@@ -239,13 +240,13 @@ impl<'a> std::fmt::Display for Token<'a> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable {
-    symbols: HashMap<String, usize>,
-    tokens: HashMap<String, usize>,
+pub(crate) struct GrammarTable<K: Hash + Eq> {
+    symbols: HashMap<K, usize>,
+    tokens: HashMap<K, usize>,
     rules: Vec<RuleRef>,
 }
 
-impl GrammarTable {
+impl GrammarTable<String> {
     pub(crate) const ROOT_RULE_IDX: usize = 0;
 
     /// Adds a symbol to the table, returning its index. If the symbol already
@@ -275,11 +276,11 @@ impl GrammarTable {
         self.rules.push(rule);
     }
 
-    pub(crate) fn symbols(&self) -> SymbolIterator {
+    pub(crate) fn symbols(&self) -> SymbolIterator<String> {
         SymbolIterator::new(self)
     }
 
-    pub(crate) fn tokens(&self) -> TokenIterator {
+    pub(crate) fn tokens(&self) -> TokenIterator<String> {
         TokenIterator::new(self)
     }
 
@@ -305,7 +306,7 @@ impl GrammarTable {
     }
 }
 
-impl std::fmt::Display for GrammarTable {
+impl std::fmt::Display for GrammarTable<String> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let header = "Grammar Table
 -------------";
@@ -339,17 +340,13 @@ impl std::fmt::Display for GrammarTable {
 }
 
 /// An ordered iterator over all symbols in a grammar table.
-pub(crate) struct SymbolIterator<'a> {
-    symbols: Vec<&'a str>,
+pub(crate) struct SymbolIterator<'a, K> {
+    symbols: Vec<&'a K>,
 }
 
-impl<'a> SymbolIterator<'a> {
-    fn new(grammar_table: &'a GrammarTable) -> Self {
-        let mut values = grammar_table
-            .symbols
-            .iter()
-            .map(|(key, value)| (key.as_str(), value))
-            .collect::<Vec<_>>();
+impl<'a> SymbolIterator<'a, String> {
+    fn new(grammar_table: &'a GrammarTable<String>) -> Self {
+        let mut values = grammar_table.symbols.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
 
@@ -359,26 +356,22 @@ impl<'a> SymbolIterator<'a> {
     }
 }
 
-impl<'a> Iterator for SymbolIterator<'a> {
+impl<'a> Iterator for SymbolIterator<'a, String> {
     type Item = Symbol<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.symbols.pop().map(Symbol)
+        self.symbols.pop().map(|s| s.as_str()).map(Symbol)
     }
 }
 
 /// An ordered iterator over all tokens in a grammar table.
-pub(crate) struct TokenIterator<'a> {
-    tokens: Vec<&'a str>,
+pub(crate) struct TokenIterator<'a, K> {
+    tokens: Vec<&'a K>,
 }
 
-impl<'a> TokenIterator<'a> {
-    fn new(grammar_table: &'a GrammarTable) -> Self {
-        let mut values = grammar_table
-            .tokens
-            .iter()
-            .map(|(key, value)| (key.as_str(), value))
-            .collect::<Vec<_>>();
+impl<'a> TokenIterator<'a, String> {
+    fn new(grammar_table: &'a GrammarTable<String>) -> Self {
+        let mut values = grammar_table.tokens.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
 
@@ -388,11 +381,11 @@ impl<'a> TokenIterator<'a> {
     }
 }
 
-impl<'a> Iterator for TokenIterator<'a> {
+impl<'a> Iterator for TokenIterator<'a, String> {
     type Item = Token<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.tokens.pop().map(Token)
+        self.tokens.pop().map(|s| s.as_str()).map(Token)
     }
 }
 
@@ -445,7 +438,9 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
+pub(crate) fn load_grammar<S: AsRef<str>>(
+    input: S,
+) -> Result<GrammarTable<String>, GrammarLoadError> {
     let mut grammar_table = GrammarTable::default();
 
     // initial table

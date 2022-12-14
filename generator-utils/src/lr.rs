@@ -50,7 +50,7 @@ impl std::fmt::Display for TableGenError {
 
 /// Exposes a trait for generating an LR table from a grammar.
 pub(crate) trait LrTableGenerator {
-    fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError>;
+    fn generate_table(grammar_table: &GrammarTable<String>) -> Result<LrTable, TableGenError>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -120,14 +120,14 @@ impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
 pub(crate) struct Lr1;
 
 impl LrTableGenerator for Lr1 {
-    fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError> {
+    fn generate_table(grammar_table: &GrammarTable<String>) -> Result<LrTable, TableGenError> {
         let collection = build_canonical_collection(grammar_table);
 
         build_table(grammar_table, &collection)
     }
 }
 
-fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
+fn initial_item_set(grammar_table: &GrammarTable<String>) -> ItemSet {
     let eof_token_ref = grammar_table.builtin_token_mapping(&BuiltinTokens::Eof);
     grammar_table
         .rules()
@@ -137,7 +137,7 @@ fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
 }
 
 fn build_first_set<'a>(
-    grammar_table: &'a GrammarTable,
+    grammar_table: &'a GrammarTable<String>,
     nullable_nonterminals: &HashSet<Symbol<'a>>,
 ) -> SymbolTokenSet<'a> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
@@ -191,7 +191,7 @@ fn build_first_set<'a>(
 }
 
 fn build_follow_set<'a>(
-    grammar_table: &'a GrammarTable,
+    grammar_table: &'a GrammarTable<String>,
     first_sets: &'a SymbolTokenSet,
 ) -> SymbolTokenSet<'a> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
@@ -286,7 +286,7 @@ fn build_follow_set<'a>(
     follow_set
 }
 
-fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<Symbol> {
+fn find_nullable_nonterminals(grammar_table: &GrammarTable<String>) -> HashSet<Symbol> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut nullable_nonterminal_productions = HashSet::new();
@@ -400,7 +400,7 @@ impl<'a> ItemSet<'a> {
         self.items.contains(item)
     }
 
-    fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
+    fn human_readable_format(&self, grammar_table: &'a GrammarTable<String>) -> String {
         self.items
             .iter()
             .map(|item_ref| {
@@ -461,7 +461,7 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
 /// until no more items are added to I;
 /// return I;
 /// ```
-fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
+fn closure<'a>(grammar_table: &'a GrammarTable<String>, i: ItemSet<'a>) -> ItemSet<'a> {
     // if the itemset is empty exit early
     if i.is_empty() {
         return i;
@@ -538,7 +538,11 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 ///     Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
 /// return Closure(J);    /* apply closure to the set */
 /// ```
-fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRef) -> ItemSet<'a> {
+fn goto<'a>(
+    grammar_table: &'a GrammarTable<String>,
+    i: &ItemSet<'a>,
+    x: SymbolOrTokenRef,
+) -> ItemSet<'a> {
     // reverse the initial set so it can be popped.
     let symbols_after_dot = i.items.iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
@@ -591,7 +595,7 @@ impl<'a> ItemCollection<'a> {
 
     /// Prints a human readable representation of a given collection.
     #[allow(unused)]
-    fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
+    fn human_readable_format(&self, grammar_table: &'a GrammarTable<String>) -> String {
         self.item_sets
             .iter()
             .enumerate()
@@ -624,7 +628,7 @@ impl<'a> IntoIterator for ItemCollection<'a> {
 ///     S ← S ∪ sk
 ///     k ← k + 1
 /// ```
-fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
+fn build_canonical_collection(grammar_table: &GrammarTable<String>) -> ItemCollection {
     let mut collection = ItemCollection::default();
 
     let initial_item_set = initial_item_set(grammar_table);
@@ -727,7 +731,7 @@ impl LrTable {
 
     /// Outputs a human-readable representation of the grammar table.
     #[allow(unused)]
-    fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+    fn human_readable_format(&self, grammar_table: &GrammarTable<String>) -> String {
         const DEAD_STATE_STR: &str = " ";
 
         let left_side_padding = 8;
@@ -821,7 +825,7 @@ impl LrTable {
 ///             then GOTO [x,n] ← k
 /// ```
 fn build_table<'a>(
-    grammar_table: &'a GrammarTable,
+    grammar_table: &'a GrammarTable<String>,
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable, TableGenError> {
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
