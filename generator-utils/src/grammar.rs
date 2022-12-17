@@ -1,6 +1,18 @@
 use std::collections::hash_map::HashMap;
 use std::hash::Hash;
 
+/// A trait signifying that a type can be represented as a Terminal within the
+/// grammar.
+pub trait TerminalRepresentable: Hash + Eq {}
+
+impl TerminalRepresentable for String {}
+
+/// A trait signifying that a type can be represented as a NonTerminal within
+/// the grammar.
+pub trait NonTerminalRepresentable: Hash + Eq {}
+
+impl NonTerminalRepresentable for String {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinSymbols {
     Goal,
@@ -240,7 +252,7 @@ impl<'a> std::fmt::Display for Token<'a> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable<S: Hash + Eq, T: Hash + Eq> {
+pub(crate) struct GrammarTable<S: NonTerminalRepresentable, T: TerminalRepresentable> {
     symbols: HashMap<S, usize>,
     tokens: HashMap<T, usize>,
     rules: Vec<RuleRef>,
@@ -345,7 +357,7 @@ pub(crate) struct SymbolIterator<'a, S> {
 }
 
 impl<'a> SymbolIterator<'a, String> {
-    fn new<T: Hash + Eq>(grammar_table: &'a GrammarTable<String, T>) -> Self {
+    fn new<T: TerminalRepresentable>(grammar_table: &'a GrammarTable<String, T>) -> Self {
         let mut values = grammar_table.symbols.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
@@ -370,7 +382,7 @@ pub(crate) struct TokenIterator<'a, T> {
 }
 
 impl<'a> TokenIterator<'a, String> {
-    fn new<S: Hash + Eq>(grammar_table: &'a GrammarTable<S, String>) -> Self {
+    fn new<S: NonTerminalRepresentable>(grammar_table: &'a GrammarTable<S, String>) -> Self {
         let mut values = grammar_table.tokens.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
