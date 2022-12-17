@@ -1,17 +1,29 @@
 use std::collections::hash_map::HashMap;
 use std::hash::Hash;
 
-/// A trait signifying that a type can be represented as a Terminal within the
+/// A trait field1ield1ignifying that a type can be represented as a Terminal within the
 /// grammar.
-pub trait TerminalRepresentable: Hash + Eq {}
+pub trait TerminalRepresentable: Hash + Eq {
+    fn human_readable_repr(&self) -> String;
+}
 
-impl TerminalRepresentable for String {}
+impl TerminalRepresentable for String {
+    fn human_readable_repr(&self) -> String {
+        self.clone()
+    }
+}
 
 /// A trait signifying that a type can be represented as a NonTerminal within
 /// the grammar.
-pub trait NonTerminalRepresentable: Hash + Eq {}
+pub trait NonTerminalRepresentable: Hash + Eq {
+    fn human_readable_repr(&self) -> String;
+}
 
-impl NonTerminalRepresentable for String {}
+impl NonTerminalRepresentable for String {
+    fn human_readable_repr(&self) -> String {
+        self.clone()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinSymbols {
@@ -52,12 +64,16 @@ impl BuiltinTokens {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrToken<'a> {
-    Symbol(Symbol<'a>),
-    Token(Token<'a>),
+pub(crate) enum SymbolOrToken<'a, S, T> {
+    Symbol(Symbol<'a, S>),
+    Token(Token<'a, T>),
 }
 
-impl<'a> std::fmt::Display for SymbolOrToken<'a> {
+impl<'a, S, T> std::fmt::Display for SymbolOrToken<'a, S, T>
+where
+    S: std::fmt::Display,
+    T: std::fmt::Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SymbolOrToken::Symbol(s) => s.fmt(f),
@@ -186,68 +202,74 @@ impl std::fmt::Display for RuleRef {
 
 /// A wrapper type for symbols borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Symbol<'a>(&'a str);
+pub(crate) struct Symbol<'a, S>
+where
+    S: 'a,
+{
+    _lifetime: std::marker::PhantomData<&'a ()>,
+    sym: S,
+}
 
-impl<'a> Symbol<'a> {
-    pub(crate) fn new(symbol: &'a str) -> Self {
-        Self(symbol)
+impl<'a, S> Symbol<'a, S> {
+    pub(crate) fn new(symbol: S) -> Self {
+        Self {
+            _lifetime: std::marker::PhantomData,
+            sym: symbol,
+        }
     }
 }
-impl<'a> AsRef<str> for Symbol<'a> {
+impl<'a> AsRef<str> for Symbol<'a, &'a str> {
     fn as_ref(&self) -> &str {
-        self.0
+        self.sym
     }
 }
 
-impl<'a> std::fmt::Display for Symbol<'a> {
+impl<'a, S: std::fmt::Display> std::fmt::Display for Symbol<'a, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)
+        write!(f, "{}", &self.sym)
     }
 }
 
-impl<'a> From<BuiltinSymbols> for Symbol<'a> {
+impl<'a> From<BuiltinSymbols> for Symbol<'a, &'a str> {
     fn from(val: BuiltinSymbols) -> Self {
         Self::new(val.as_symbol())
     }
 }
 
-impl<'a> From<&'a str> for Symbol<'a> {
-    fn from(val: &'a str) -> Self {
-        Self::new(val)
-    }
-}
-
 /// A wrapper type for tokens borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Token<'a>(&'a str);
+pub(crate) struct Token<'a, T>
+where
+    T: 'a,
+{
+    _lifetime: std::marker::PhantomData<&'a ()>,
+    tok: T,
+}
 
-impl<'a> Token<'a> {
-    pub(crate) fn new(token: &'a str) -> Self {
-        Self(token)
+impl<'a, T> Token<'a, T> {
+    pub(crate) fn new(token: T) -> Self {
+        Self {
+            _lifetime: std::marker::PhantomData,
+            tok: token,
+        }
     }
 }
 
-impl<'a> AsRef<str> for Token<'a> {
+impl<'a> AsRef<str> for Token<'a, &'a str> {
     fn as_ref(&self) -> &str {
-        self.0
+        self.tok
     }
 }
 
-impl<'a> From<&'a str> for Token<'a> {
-    fn from(val: &'a str) -> Self {
-        Token::new(val)
-    }
-}
-
-impl<'a> From<BuiltinTokens> for Token<'a> {
+impl<'a> From<BuiltinTokens> for Token<'a, &'a str> {
     fn from(val: BuiltinTokens) -> Self {
         Token::new(val.as_token())
     }
 }
 
-impl<'a> std::fmt::Display for Token<'a> {
+impl<'a, T: std::fmt::Display> std::fmt::Display for Token<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)
+        write!(f, "{}", &self.tok)
     }
 }
 
@@ -296,12 +318,12 @@ impl GrammarTable<String, String> {
         TokenIterator::new(self)
     }
 
-    pub(crate) fn symbol_mapping(&self, symbol: &Symbol) -> Option<SymbolRef> {
-        self.symbols.get(symbol.0).map(|id| SymbolRef(*id))
+    pub(crate) fn symbol_mapping<'a>(&self, symbol: &Symbol<&'a str>) -> Option<SymbolRef> {
+        self.symbols.get(symbol.sym).map(|id| SymbolRef(*id))
     }
 
-    pub(crate) fn token_mapping(&self, token: &Token) -> Option<TokenRef> {
-        self.tokens.get(token.0).map(|id| TokenRef(*id))
+    pub(crate) fn token_mapping<'a>(&self, token: &Token<&'a str>) -> Option<TokenRef> {
+        self.tokens.get(token.tok).map(|id| TokenRef(*id))
     }
 
     /// Similarly to token_mapping, this looks up a TokenRef, however the
@@ -369,10 +391,10 @@ impl<'a> SymbolIterator<'a, String> {
 }
 
 impl<'a> Iterator for SymbolIterator<'a, String> {
-    type Item = Symbol<'a>;
+    type Item = Symbol<'a, &'a str>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.symbols.pop().map(|s| s.as_str()).map(Symbol)
+        self.symbols.pop().map(|s| s.as_str()).map(Symbol::new)
     }
 }
 
@@ -394,10 +416,10 @@ impl<'a> TokenIterator<'a, String> {
 }
 
 impl<'a> Iterator for TokenIterator<'a, String> {
-    type Item = Token<'a>;
+    type Item = Token<'a, &'a str>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.tokens.pop().map(|s| s.as_str()).map(Token)
+        self.tokens.pop().map(|s| s.as_str()).map(Token::new)
     }
 }
 
@@ -684,11 +706,11 @@ mod tests {
         let mut symbol_iter = grammar_table.symbols();
 
         assert_eq!(
-            Some(Symbol(BuiltinSymbols::Goal.as_symbol())),
+            Some(Symbol::new(BuiltinSymbols::Goal.as_symbol())),
             symbol_iter.next()
         );
-        assert_eq!(Some(Symbol("<expr>")), symbol_iter.next());
-        assert_eq!(Some(Symbol("<addition>")), symbol_iter.next());
+        assert_eq!(Some(Symbol::new("<expr>")), symbol_iter.next());
+        assert_eq!(Some(Symbol::new("<addition>")), symbol_iter.next());
         assert_eq!(None, symbol_iter.next());
     }
 
@@ -708,11 +730,11 @@ mod tests {
         let mut token_iter = grammar_table
             .tokens()
             // strip out the builtins for the sake of testing.
-            .filter(|token| !token.0.starts_with('<'));
+            .filter(|token| !token.tok.starts_with('<'));
 
-        assert_eq!(Some(Token("(")), token_iter.next());
-        assert_eq!(Some(Token(")")), token_iter.next());
-        assert_eq!(Some(Token("+")), token_iter.next());
+        assert_eq!(Some(Token::new("(")), token_iter.next());
+        assert_eq!(Some(Token::new(")")), token_iter.next());
+        assert_eq!(Some(Token::new("+")), token_iter.next());
         assert_eq!(None, token_iter.next());
     }
 }

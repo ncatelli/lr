@@ -56,12 +56,15 @@ pub(crate) trait LrTableGenerator {
 }
 
 #[derive(Debug, PartialEq)]
-struct SymbolTokenSet<'a> {
-    sets: HashMap<Symbol<'a>, HashSet<Token<'a>>>,
+struct SymbolTokenSet<'a, SOT>
+where
+    SOT: std::hash::Hash + Eq,
+{
+    sets: HashMap<Symbol<'a, SOT>, HashSet<Token<'a, SOT>>>,
 }
 
-impl<'a> SymbolTokenSet<'a> {
-    fn new<S: AsRef<[Symbol<'a>]>>(symbols: S) -> Self {
+impl<'a> SymbolTokenSet<'a, &'a str> {
+    fn new<S: AsRef<[Symbol<'a, &'a str>]>>(symbols: S) -> Self {
         let sets = symbols
             .as_ref()
             .iter()
@@ -73,7 +76,7 @@ impl<'a> SymbolTokenSet<'a> {
     }
 
     /// Inserts a token into a symbol's set returning true if it already exists.
-    fn insert<T: Into<Token<'a>>>(&mut self, key: Symbol<'a>, token: T) -> bool {
+    fn insert<T: Into<Token<'a, &'a str>>>(&mut self, key: Symbol<'a, &'a str>, token: T) -> bool {
         self.sets
             .get_mut(&key)
             .map(|token_set| token_set.insert(token.into()))
@@ -81,7 +84,7 @@ impl<'a> SymbolTokenSet<'a> {
     }
 
     /// Sets the tokens for `lhs` to the union of `lhs` and `rhs`.
-    fn union_of_sets(&mut self, lhs: Symbol<'a>, rhs: &Symbol<'a>) -> bool {
+    fn union_of_sets(&mut self, lhs: Symbol<'a, &'a str>, rhs: &Symbol<'a, &'a str>) -> bool {
         let mut changed = false;
 
         // get all terminals from the rhs symbol
@@ -96,7 +99,7 @@ impl<'a> SymbolTokenSet<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
+impl<'a> std::fmt::Display for SymbolTokenSet<'a, &'a str> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let lines = self
             .sets
@@ -112,8 +115,10 @@ impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
     }
 }
 
-impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
-    fn as_ref(&self) -> &HashMap<Symbol<'a>, HashSet<Token<'a>>> {
+impl<'a> AsRef<HashMap<Symbol<'a, &'a str>, HashSet<Token<'a, &'a str>>>>
+    for SymbolTokenSet<'a, &'a str>
+{
+    fn as_ref(&self) -> &HashMap<Symbol<'a, &'a str>, HashSet<Token<'a, &'a str>>> {
         &self.sets
     }
 }
@@ -142,8 +147,8 @@ fn initial_item_set(grammar_table: &GrammarTable<String, String>) -> ItemSet {
 
 fn build_first_set<'a>(
     grammar_table: &'a GrammarTable<String, String>,
-    nullable_nonterminals: &HashSet<Symbol<'a>>,
-) -> SymbolTokenSet<'a> {
+    nullable_nonterminals: &HashSet<Symbol<'a, &'a str>>,
+) -> SymbolTokenSet<'a, &'a str> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut first_set = SymbolTokenSet::new(&symbols);
@@ -196,8 +201,8 @@ fn build_first_set<'a>(
 
 fn build_follow_set<'a>(
     grammar_table: &'a GrammarTable<String, String>,
-    first_sets: &'a SymbolTokenSet,
-) -> SymbolTokenSet<'a> {
+    first_sets: &'a SymbolTokenSet<&'a str>,
+) -> SymbolTokenSet<'a, &'a str> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut follow_set = SymbolTokenSet::new(&symbols);
@@ -290,7 +295,9 @@ fn build_follow_set<'a>(
     follow_set
 }
 
-fn find_nullable_nonterminals(grammar_table: &GrammarTable<String, String>) -> HashSet<Symbol> {
+fn find_nullable_nonterminals<'a>(
+    grammar_table: &'a GrammarTable<String, String>,
+) -> HashSet<Symbol<'a, &'a str>> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut nullable_nonterminal_productions = HashSet::new();
