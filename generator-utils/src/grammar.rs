@@ -240,13 +240,13 @@ impl<'a> std::fmt::Display for Token<'a> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable<K: Hash + Eq> {
-    symbols: HashMap<K, usize>,
-    tokens: HashMap<K, usize>,
+pub(crate) struct GrammarTable<S: Hash + Eq, T: Hash + Eq> {
+    symbols: HashMap<S, usize>,
+    tokens: HashMap<T, usize>,
     rules: Vec<RuleRef>,
 }
 
-impl GrammarTable<String> {
+impl GrammarTable<String, String> {
     pub(crate) const ROOT_RULE_IDX: usize = 0;
 
     /// Adds a symbol to the table, returning its index. If the symbol already
@@ -306,7 +306,7 @@ impl GrammarTable<String> {
     }
 }
 
-impl std::fmt::Display for GrammarTable<String> {
+impl std::fmt::Display for GrammarTable<String, String> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let header = "Grammar Table
 -------------";
@@ -340,12 +340,12 @@ impl std::fmt::Display for GrammarTable<String> {
 }
 
 /// An ordered iterator over all symbols in a grammar table.
-pub(crate) struct SymbolIterator<'a, K> {
-    symbols: Vec<&'a K>,
+pub(crate) struct SymbolIterator<'a, S> {
+    symbols: Vec<&'a S>,
 }
 
 impl<'a> SymbolIterator<'a, String> {
-    fn new(grammar_table: &'a GrammarTable<String>) -> Self {
+    fn new<T: Hash + Eq>(grammar_table: &'a GrammarTable<String, T>) -> Self {
         let mut values = grammar_table.symbols.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
@@ -365,12 +365,12 @@ impl<'a> Iterator for SymbolIterator<'a, String> {
 }
 
 /// An ordered iterator over all tokens in a grammar table.
-pub(crate) struct TokenIterator<'a, K> {
-    tokens: Vec<&'a K>,
+pub(crate) struct TokenIterator<'a, T> {
+    tokens: Vec<&'a T>,
 }
 
 impl<'a> TokenIterator<'a, String> {
-    fn new(grammar_table: &'a GrammarTable<String>) -> Self {
+    fn new<S: Hash + Eq>(grammar_table: &'a GrammarTable<S, String>) -> Self {
         let mut values = grammar_table.tokens.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
@@ -440,7 +440,7 @@ impl std::fmt::Display for GrammarLoadError {
 
 pub(crate) fn load_grammar<S: AsRef<str>>(
     input: S,
-) -> Result<GrammarTable<String>, GrammarLoadError> {
+) -> Result<GrammarTable<String, String>, GrammarLoadError> {
     let mut grammar_table = GrammarTable::default();
 
     // initial table
