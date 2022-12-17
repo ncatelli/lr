@@ -295,9 +295,9 @@ fn build_follow_set<'a>(
     follow_set
 }
 
-fn find_nullable_nonterminals<'a>(
-    grammar_table: &'a GrammarTable<String, String>,
-) -> HashSet<Symbol<'a, &'a str>> {
+fn find_nullable_nonterminals(
+    grammar_table: &GrammarTable<String, String>,
+) -> HashSet<Symbol<'_, &str>> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
     let mut nullable_nonterminal_productions = HashSet::new();

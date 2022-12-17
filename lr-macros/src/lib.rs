@@ -1,4 +1,3 @@
-use proc_macro2::{Span, TokenStream};
 use syn::{parse_macro_input, DeriveInput};
 
 #[proc_macro_derive(lrSymbol, attributes(terminal, nonterminal))]
