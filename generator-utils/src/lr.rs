@@ -208,7 +208,7 @@ fn build_follow_set<'a>(
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), BuiltinTokens::Eof);
+    follow_set.insert(Symbol::new(String::goal_repr()), BuiltinTokens::Eof);
 
     let mut changed = true;
     while changed {
@@ -860,7 +860,7 @@ fn build_table<'a>(
             })?;
 
             let is_goal = Some(i.production.lhs)
-                == grammar_table.symbol_mapping(&Symbol::from(BuiltinSymbols::Goal));
+                == grammar_table.symbol_mapping(&Symbol::new(String::goal_repr()));
             let is_goal_acceptor = is_goal
                 && symbol_after_dot.is_none()
                 && (*lookahead_token == Token::from(BuiltinTokens::Eof));
@@ -1004,6 +1004,7 @@ mod tests {
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
+        let goal_symbol_repr = String::goal_repr();
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1013,7 +1014,7 @@ mod tests {
 
         let expected = vec![
             (
-                Symbol::from(BuiltinSymbols::Goal),
+                Symbol::new(goal_symbol_repr),
                 [Token::new("0"), Token::new("+"), Token::new("(")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
@@ -1044,6 +1045,7 @@ mod tests {
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
+        let goal_symbol_repr = String::goal_repr();
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1055,7 +1057,7 @@ mod tests {
 
         let expected = vec![
             (
-                Symbol::from(BuiltinSymbols::Goal),
+                Symbol::new(goal_symbol_repr),
                 [Token::new("<$>")].into_iter().collect::<HashSet<_>>(),
             ),
             (

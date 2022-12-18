@@ -1,40 +1,92 @@
 use std::collections::hash_map::HashMap;
 use std::hash::Hash;
 
-/// A trait field1ield1ignifying that a type can be represented as a Terminal within the
+/// Represents a type that can be used within the LR table by assigning a
+/// variant id to it. Valid variant range is `(1..)` for non-terminals and
+/// `(2..)` for terminals.
+pub trait GrammarElementIdentifiable {
+    fn variant_id(&self) -> usize;
+}
+
+impl GrammarElementIdentifiable for String {
+    fn variant_id(&self) -> usize {
+        todo!()
+    }
+}
+
+/// A trait signifying that a type can be represented as a Terminal within the
 /// grammar.
-pub trait TerminalRepresentable: Hash + Eq {
-    fn human_readable_repr(&self) -> String;
+pub trait TerminalRepresentable: Hash + Eq + GrammarElementIdentifiable
+where
+    Self: Sized,
+{
+    fn human_readable_repr(&self) -> &str;
+
+    /// Attempts to convert a string representation to a corresponding terminal kind.
+    fn from_repr(src: &str) -> Option<Self>;
+
+    fn epsilon_id() -> usize;
+    fn epsilon_repr() -> &'static str {
+        "<epsilon>"
+    }
+
+    fn eof_id() -> usize;
+    fn eof_repr() -> &'static str {
+        "<$>"
+    }
 }
 
 impl TerminalRepresentable for String {
-    fn human_readable_repr(&self) -> String {
-        self.clone()
+    fn human_readable_repr(&self) -> &str {
+        self.as_str()
+    }
+
+    fn from_repr(src: &str) -> Option<Self> {
+        Some(src.to_string())
+    }
+
+    fn epsilon_id() -> usize {
+        0
+    }
+
+    fn eof_id() -> usize {
+        1
     }
 }
 
 /// A trait signifying that a type can be represented as a NonTerminal within
 /// the grammar.
-pub trait NonTerminalRepresentable: Hash + Eq {
-    fn human_readable_repr(&self) -> String;
-}
+pub trait NonTerminalRepresentable: Hash + Eq
+where
+    Self: Sized,
+{
+    fn human_readable_repr(&self) -> &str;
 
-impl NonTerminalRepresentable for String {
-    fn human_readable_repr(&self) -> String {
-        self.clone()
+    /// Attempts to convert a string representation to a corresponding nonterminal kind.
+    fn from_repr(src: &str) -> Option<Self>;
+
+    fn variant_id(&self) -> usize;
+
+    fn goal_id() -> usize {
+        0
+    }
+
+    fn goal_repr() -> &'static str {
+        "<*>"
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinSymbols {
-    Goal,
-}
+impl NonTerminalRepresentable for String {
+    fn human_readable_repr(&self) -> &str {
+        self.as_str()
+    }
 
-impl BuiltinSymbols {
-    pub(crate) fn as_symbol(&self) -> &'static str {
-        match self {
-            Self::Goal => "<*>",
-        }
+    fn from_repr(src: &str) -> Option<Self> {
+        Some(src.to_string())
+    }
+
+    fn variant_id(&self) -> usize {
+        todo!()
     }
 }
 
@@ -42,13 +94,12 @@ impl BuiltinSymbols {
 pub(crate) enum BuiltinTokens {
     Epsilon,
     Eof,
-    EndL,
 }
 
 impl BuiltinTokens {
     pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
         let val = token_str.as_ref();
-        [Self::Epsilon, Self::Eof, Self::EndL]
+        [Self::Epsilon, Self::Eof]
             .iter()
             .map(|builtin| builtin.as_token())
             .any(|builtin| builtin == val)
@@ -58,7 +109,6 @@ impl BuiltinTokens {
         match self {
             BuiltinTokens::Epsilon => "<epsilon>",
             BuiltinTokens::Eof => "<$>",
-            BuiltinTokens::EndL => "<endl>",
         }
     }
 }
@@ -227,12 +277,6 @@ impl<'a> AsRef<str> for Symbol<'a, &'a str> {
 impl<'a, S: std::fmt::Display> std::fmt::Display for Symbol<'a, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.sym)
-    }
-}
-
-impl<'a> From<BuiltinSymbols> for Symbol<'a, &'a str> {
-    fn from(val: BuiltinSymbols) -> Self {
-        Self::new(val.as_symbol())
     }
 }
 
@@ -481,14 +525,10 @@ pub(crate) fn load_grammar<S: AsRef<str>>(
     let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
     let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
-    grammar_table.add_symbol_mut(BuiltinSymbols::Goal.as_symbol());
+    grammar_table.add_symbol_mut(String::goal_repr());
 
     // add default tokens
-    let builtin_tokens = [
-        BuiltinTokens::Epsilon,
-        BuiltinTokens::Eof,
-        BuiltinTokens::EndL,
-    ];
+    let builtin_tokens = [BuiltinTokens::Epsilon, BuiltinTokens::Eof];
 
     for builtin_tokens in builtin_tokens {
         let symbol_string_repr = builtin_tokens.as_token().to_string();
@@ -654,8 +694,8 @@ mod tests {
         let grammar_table = grammar_table.unwrap();
 
         assert_eq!(2, grammar_table.symbols.len());
-        // 3 builtins plus `(` and `)`
-        assert_eq!(5, grammar_table.tokens.len());
+        // 2 builtins plus `(` and `)`
+        assert_eq!(4, grammar_table.tokens.len());
         assert_eq!(7, grammar_table.rules.len());
     }
 
@@ -702,13 +742,11 @@ mod tests {
 
         assert!(res.is_ok());
         let grammar_table = res.unwrap();
+        let goal_symbol_repr = String::goal_repr();
 
         let mut symbol_iter = grammar_table.symbols();
 
-        assert_eq!(
-            Some(Symbol::new(BuiltinSymbols::Goal.as_symbol())),
-            symbol_iter.next()
-        );
+        assert_eq!(Some(Symbol::new(goal_symbol_repr)), symbol_iter.next());
         assert_eq!(Some(Symbol::new("<expr>")), symbol_iter.next());
         assert_eq!(Some(Symbol::new("<addition>")), symbol_iter.next());
         assert_eq!(None, symbol_iter.next());
