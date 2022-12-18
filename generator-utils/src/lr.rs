@@ -137,7 +137,10 @@ impl LrTableGenerator for Lr1 {
 }
 
 fn initial_item_set(grammar_table: &GrammarTable<String, String>) -> ItemSet {
-    let eof_token_ref = grammar_table.builtin_token_mapping(&BuiltinTokens::Eof);
+    // safe to unwrap as eof is a builtin.
+    let eof_token_ref = grammar_table
+        .token_mapping(&Token::new(String::eof_repr()))
+        .unwrap();
     grammar_table
         .rules()
         .take(1)
@@ -155,7 +158,7 @@ fn build_first_set<'a>(
 
     // map nullable nonterminals to epsilon
     for symbol in nullable_nonterminals {
-        first_set.insert(*symbol, BuiltinTokens::Epsilon);
+        first_set.insert(*symbol, Token::new(String::epsilon_repr()));
     }
 
     // set the initial token for each production
@@ -208,7 +211,10 @@ fn build_follow_set<'a>(
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(Symbol::new(String::goal_repr()), BuiltinTokens::Eof);
+    follow_set.insert(
+        Symbol::new(String::goal_repr()),
+        Token::new(String::eof_repr()),
+    );
 
     let mut changed = true;
     while changed {
@@ -251,11 +257,11 @@ fn build_follow_set<'a>(
                         let q_symbol = symbols[idx.as_usize()];
                         let q_first_set = first_sets.sets.get(&q_symbol).unwrap();
                         let contains_epsilon =
-                            q_first_set.contains(&Token::from(BuiltinTokens::Epsilon));
+                            q_first_set.contains(&Token::new(String::epsilon_repr()));
 
                         let q_first_set_sans_epsilon = q_first_set
                             .iter()
-                            .filter(|&tok| tok != &Token::from(BuiltinTokens::Epsilon));
+                            .filter(|&tok| tok != &Token::new(String::epsilon_repr()));
 
                         for &t in q_first_set_sans_epsilon {
                             if follow_set.insert(b, t) {
@@ -316,7 +322,7 @@ fn find_nullable_nonterminals(
                     SymbolOrTokenRef::Symbol(_) => None,
                     SymbolOrTokenRef::Token(idx) => tokens.get(idx.as_usize()),
                 });
-                if first_rhs_is_token == Some(&Token::new(BuiltinTokens::Epsilon.as_token())) {
+                if first_rhs_is_token == Some(&Token::new(String::epsilon_repr())) {
                     nullable_nonterminal_productions.insert(lhs);
                     done = false
                 } else {
@@ -863,7 +869,7 @@ fn build_table<'a>(
                 == grammar_table.symbol_mapping(&Symbol::new(String::goal_repr()));
             let is_goal_acceptor = is_goal
                 && symbol_after_dot.is_none()
-                && (*lookahead_token == Token::from(BuiltinTokens::Eof));
+                && (*lookahead_token == Token::new(String::eof_repr()));
 
             // if not the last symbol and it's a token, setup a shift.
             if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
@@ -880,7 +886,7 @@ fn build_table<'a>(
             if is_goal_acceptor {
                 // safe to unwrap, Eof builtin is guaranteed to exist.
                 let a = grammar_table
-                    .token_mapping(&Token::from(BuiltinTokens::Eof))
+                    .token_mapping(&Token::new(String::eof_repr()))
                     .unwrap();
 
                 // Safe to assign without checks due all indexes being derived from known states.
@@ -1089,7 +1095,7 @@ mod tests {
 
         let initial_rule = grammar_table.rules().next().unwrap();
         let eof = grammar_table
-            .token_mapping(&Token::from(BuiltinTokens::Eof))
+            .token_mapping(&Token::new(String::eof_repr()))
             .unwrap();
 
         let s0 = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);

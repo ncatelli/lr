@@ -91,29 +91,6 @@ impl NonTerminalRepresentable for String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinTokens {
-    Epsilon,
-    Eof,
-}
-
-impl BuiltinTokens {
-    pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
-        let val = token_str.as_ref();
-        [Self::Epsilon, Self::Eof]
-            .iter()
-            .map(|builtin| builtin.as_token())
-            .any(|builtin| builtin == val)
-    }
-
-    pub(crate) fn as_token(&self) -> &'static str {
-        match self {
-            BuiltinTokens::Epsilon => "<epsilon>",
-            BuiltinTokens::Eof => "<$>",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SymbolOrToken<'a, S, T> {
     Symbol(Symbol<'a, S>),
     Token(Token<'a, T>),
@@ -305,12 +282,6 @@ impl<'a> AsRef<str> for Token<'a, &'a str> {
     }
 }
 
-impl<'a> From<BuiltinTokens> for Token<'a, &'a str> {
-    fn from(val: BuiltinTokens) -> Self {
-        Token::new(val.as_token())
-    }
-}
-
 impl<'a, T: std::fmt::Display> std::fmt::Display for Token<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.tok)
@@ -368,15 +339,6 @@ impl GrammarTable<String, String> {
 
     pub(crate) fn token_mapping<'a>(&self, token: &Token<&'a str>) -> Option<TokenRef> {
         self.tokens.get(token.tok).map(|id| TokenRef(*id))
-    }
-
-    /// Similarly to token_mapping, this looks up a TokenRef, however the
-    /// builtin guaranteed removes the need to return an Option.
-    pub(crate) fn builtin_token_mapping(&self, token: &BuiltinTokens) -> TokenRef {
-        self.tokens
-            .get(token.as_token())
-            .map(|id| TokenRef(*id))
-            .unwrap()
     }
 
     pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
@@ -528,10 +490,10 @@ pub(crate) fn load_grammar<S: AsRef<str>>(
     grammar_table.add_symbol_mut(String::goal_repr());
 
     // add default tokens
-    let builtin_tokens = [BuiltinTokens::Epsilon, BuiltinTokens::Eof];
+    let builtin_tokens = [String::epsilon_repr(), String::eof_repr()];
 
-    for builtin_tokens in builtin_tokens {
-        let symbol_string_repr = builtin_tokens.as_token().to_string();
+    for builtin_token in builtin_tokens {
+        let symbol_string_repr = builtin_token;
         grammar_table.add_token_mut(symbol_string_repr);
     }
 
@@ -648,7 +610,7 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 
     let is_wrapped = trimmed_value.starts_with('<') && trimmed_value.ends_with('>');
     let is_not_empty = trimmed_value.len() > 2;
-    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
+    let is_builtin = trimmed_value == String::eof_repr() || trimmed_value == String::epsilon_repr();
 
     // guarantee that it's a symbol and that it's not just an empty symbol `<>`
     if is_wrapped && is_not_empty && !is_builtin {
@@ -661,7 +623,8 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 fn token_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
     let value_len = trimmed_value.len();
-    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
+
+    let is_builtin = trimmed_value == String::eof_repr() || trimmed_value == String::epsilon_repr();
 
     if value_len == 1 || is_builtin {
         Some(trimmed_value)
