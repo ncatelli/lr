@@ -1,22 +1,13 @@
 use std::collections::hash_map::HashMap;
 use std::hash::Hash;
 
-/// Represents a type that can be used within the LR table by assigning a
-/// variant id to it. Valid variant range is `(1..)` for non-terminals and
-/// `(2..)` for terminals.
-pub trait GrammarElementIdentifiable {
-    fn variant_id(&self) -> usize;
-}
-
-impl GrammarElementIdentifiable for String {
-    fn variant_id(&self) -> usize {
-        todo!()
-    }
-}
+pub const STRING_GOAL_REPR: &str = "<*>";
+pub const STRING_EOF_REPR: &str = "<$>";
+pub const STRING_EPSILON_REPR: &str = "<epsilon>";
 
 /// A trait signifying that a type can be represented as a Terminal within the
 /// grammar.
-pub trait TerminalRepresentable: Hash + Eq + GrammarElementIdentifiable
+pub trait TerminalRepresentable: Hash + Eq
 where
     Self: Sized,
 {
@@ -36,24 +27,6 @@ where
     }
 }
 
-impl TerminalRepresentable for String {
-    fn human_readable_repr(&self) -> &str {
-        self.as_str()
-    }
-
-    fn from_repr(src: &str) -> Option<Self> {
-        Some(src.to_string())
-    }
-
-    fn epsilon_id() -> usize {
-        0
-    }
-
-    fn eof_id() -> usize {
-        1
-    }
-}
-
 /// A trait signifying that a type can be represented as a NonTerminal within
 /// the grammar.
 pub trait NonTerminalRepresentable: Hash + Eq
@@ -65,28 +38,12 @@ where
     /// Attempts to convert a string representation to a corresponding nonterminal kind.
     fn from_repr(src: &str) -> Option<Self>;
 
-    fn variant_id(&self) -> usize;
-
     fn goal_id() -> usize {
         0
     }
 
     fn goal_repr() -> &'static str {
         "<*>"
-    }
-}
-
-impl NonTerminalRepresentable for String {
-    fn human_readable_repr(&self) -> &str {
-        self.as_str()
-    }
-
-    fn from_repr(src: &str) -> Option<Self> {
-        Some(src.to_string())
-    }
-
-    fn variant_id(&self) -> usize {
-        todo!()
     }
 }
 
@@ -289,7 +246,11 @@ impl<'a, T: std::fmt::Display> std::fmt::Display for Token<'a, T> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable<S: NonTerminalRepresentable, T: TerminalRepresentable> {
+pub(crate) struct GrammarTable<S, T>
+where
+    S: Hash + Eq,
+    T: Hash + Eq,
+{
     symbols: HashMap<S, usize>,
     tokens: HashMap<T, usize>,
     rules: Vec<RuleRef>,
@@ -385,7 +346,7 @@ pub(crate) struct SymbolIterator<'a, S> {
 }
 
 impl<'a> SymbolIterator<'a, String> {
-    fn new<T: TerminalRepresentable>(grammar_table: &'a GrammarTable<String, T>) -> Self {
+    fn new<T: Hash + Eq>(grammar_table: &'a GrammarTable<String, T>) -> Self {
         let mut values = grammar_table.symbols.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
@@ -410,7 +371,7 @@ pub(crate) struct TokenIterator<'a, T> {
 }
 
 impl<'a> TokenIterator<'a, String> {
-    fn new<S: NonTerminalRepresentable>(grammar_table: &'a GrammarTable<S, String>) -> Self {
+    fn new<S: Hash + Eq>(grammar_table: &'a GrammarTable<S, String>) -> Self {
         let mut values = grammar_table.tokens.iter().collect::<Vec<_>>();
         // reverse the order so first rule pops off the back first.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
@@ -487,10 +448,10 @@ pub(crate) fn load_grammar<S: AsRef<str>>(
     let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
     let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
     grammar_table.add_rule_mut(root_rule);
-    grammar_table.add_symbol_mut(String::goal_repr());
+    grammar_table.add_symbol_mut(STRING_GOAL_REPR);
 
     // add default tokens
-    let builtin_tokens = [String::epsilon_repr(), String::eof_repr()];
+    let builtin_tokens = [STRING_EPSILON_REPR, STRING_EOF_REPR];
 
     for builtin_token in builtin_tokens {
         let symbol_string_repr = builtin_token;
@@ -610,7 +571,7 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 
     let is_wrapped = trimmed_value.starts_with('<') && trimmed_value.ends_with('>');
     let is_not_empty = trimmed_value.len() > 2;
-    let is_builtin = trimmed_value == String::eof_repr() || trimmed_value == String::epsilon_repr();
+    let is_builtin = trimmed_value == STRING_EOF_REPR || trimmed_value == STRING_EPSILON_REPR;
 
     // guarantee that it's a symbol and that it's not just an empty symbol `<>`
     if is_wrapped && is_not_empty && !is_builtin {
@@ -624,7 +585,7 @@ fn token_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
     let value_len = trimmed_value.len();
 
-    let is_builtin = trimmed_value == String::eof_repr() || trimmed_value == String::epsilon_repr();
+    let is_builtin = trimmed_value == STRING_EOF_REPR || trimmed_value == STRING_EPSILON_REPR;
 
     if value_len == 1 || is_builtin {
         Some(trimmed_value)
@@ -705,7 +666,7 @@ mod tests {
 
         assert!(res.is_ok());
         let grammar_table = res.unwrap();
-        let goal_symbol_repr = String::goal_repr();
+        let goal_symbol_repr = STRING_GOAL_REPR;
 
         let mut symbol_iter = grammar_table.symbols();
 

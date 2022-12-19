@@ -139,7 +139,7 @@ impl LrTableGenerator for Lr1 {
 fn initial_item_set(grammar_table: &GrammarTable<String, String>) -> ItemSet {
     // safe to unwrap as eof is a builtin.
     let eof_token_ref = grammar_table
-        .token_mapping(&Token::new(String::eof_repr()))
+        .token_mapping(&Token::new(STRING_EOF_REPR))
         .unwrap();
     grammar_table
         .rules()
@@ -158,7 +158,7 @@ fn build_first_set<'a>(
 
     // map nullable nonterminals to epsilon
     for symbol in nullable_nonterminals {
-        first_set.insert(*symbol, Token::new(String::epsilon_repr()));
+        first_set.insert(*symbol, Token::new(STRING_EPSILON_REPR));
     }
 
     // set the initial token for each production
@@ -211,10 +211,7 @@ fn build_follow_set<'a>(
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(
-        Symbol::new(String::goal_repr()),
-        Token::new(String::eof_repr()),
-    );
+    follow_set.insert(Symbol::new(STRING_GOAL_REPR), Token::new(STRING_EOF_REPR));
 
     let mut changed = true;
     while changed {
@@ -257,11 +254,11 @@ fn build_follow_set<'a>(
                         let q_symbol = symbols[idx.as_usize()];
                         let q_first_set = first_sets.sets.get(&q_symbol).unwrap();
                         let contains_epsilon =
-                            q_first_set.contains(&Token::new(String::epsilon_repr()));
+                            q_first_set.contains(&Token::new(STRING_EPSILON_REPR));
 
                         let q_first_set_sans_epsilon = q_first_set
                             .iter()
-                            .filter(|&tok| tok != &Token::new(String::epsilon_repr()));
+                            .filter(|&tok| tok != &Token::new(STRING_EPSILON_REPR));
 
                         for &t in q_first_set_sans_epsilon {
                             if follow_set.insert(b, t) {
@@ -322,7 +319,7 @@ fn find_nullable_nonterminals(
                     SymbolOrTokenRef::Symbol(_) => None,
                     SymbolOrTokenRef::Token(idx) => tokens.get(idx.as_usize()),
                 });
-                if first_rhs_is_token == Some(&Token::new(String::epsilon_repr())) {
+                if first_rhs_is_token == Some(&Token::new(STRING_EPSILON_REPR)) {
                     nullable_nonterminal_productions.insert(lhs);
                     done = false
                 } else {
@@ -866,10 +863,10 @@ fn build_table<'a>(
             })?;
 
             let is_goal = Some(i.production.lhs)
-                == grammar_table.symbol_mapping(&Symbol::new(String::goal_repr()));
+                == grammar_table.symbol_mapping(&Symbol::new(STRING_GOAL_REPR));
             let is_goal_acceptor = is_goal
                 && symbol_after_dot.is_none()
-                && (*lookahead_token == Token::new(String::eof_repr()));
+                && (*lookahead_token == Token::new(STRING_EOF_REPR));
 
             // if not the last symbol and it's a token, setup a shift.
             if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
@@ -886,7 +883,7 @@ fn build_table<'a>(
             if is_goal_acceptor {
                 // safe to unwrap, Eof builtin is guaranteed to exist.
                 let a = grammar_table
-                    .token_mapping(&Token::new(String::eof_repr()))
+                    .token_mapping(&Token::new(STRING_EOF_REPR))
                     .unwrap();
 
                 // Safe to assign without checks due all indexes being derived from known states.
@@ -1010,7 +1007,7 @@ mod tests {
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
-        let goal_symbol_repr = String::goal_repr();
+        let goal_symbol_repr = STRING_GOAL_REPR;
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1051,7 +1048,7 @@ mod tests {
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
-        let goal_symbol_repr = String::goal_repr();
+        let goal_symbol_repr = STRING_GOAL_REPR;
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1095,7 +1092,7 @@ mod tests {
 
         let initial_rule = grammar_table.rules().next().unwrap();
         let eof = grammar_table
-            .token_mapping(&Token::new(String::eof_repr()))
+            .token_mapping(&Token::new(STRING_EOF_REPR))
             .unwrap();
 
         let s0 = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
