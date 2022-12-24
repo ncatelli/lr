@@ -3,3 +3,6 @@ name = "lr-generator-utils"
 version = "0.1.0"
 edition = "2021"
 workspace = ".."
+
+[dependencies]
+enum-variant-kind-derive = { git = "https://github.com/ncatelli/enum-variant-kind-derive", branch = "main" }

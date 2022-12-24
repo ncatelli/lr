@@ -64,7 +64,7 @@ fn generate_table<G: AsRef<str>>(kind: GeneratorKind, grammar: G) -> Result<lr::
 
     match kind {
         GeneratorKind::Lr1 => {
-            use crate::lr::LrTableGenerator;
+            use crate::lr::StringlyLrTableGenerator;
 
             crate::lr::Lr1::generate_table(&grammar_table)
                 .map_err(|e| Error::new(ErrorKind::TableGenerationError(e)))
