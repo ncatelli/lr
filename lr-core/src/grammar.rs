@@ -15,7 +15,6 @@ where
     type VariantRepr;
 
     fn variant(&self) -> Self::VariantRepr;
-    fn from_repr(src: &Self::VariantRepr) -> Option<Self>;
     fn epsilon_variant() -> Self::VariantRepr;
     fn eof_variant() -> Self::VariantRepr;
 }
@@ -31,7 +30,6 @@ where
 
     fn variant(&self) -> Self::VariantRepr;
     /// Attempts to convert a string representation to a corresponding nonterminal kind.
-    fn from_repr(src: &Self::VariantRepr) -> Option<Self>;
     fn goal_variant() -> Self::VariantRepr;
 }
 
@@ -912,15 +910,6 @@ mod tests {
             Self::VariantRepr::Epsilon
         }
 
-        fn from_repr(src: &Self::VariantRepr) -> Option<Self> {
-            match src {
-                ParensGrammarTokenKind::Epsilon => Some(Self::Epsilon),
-                ParensGrammarTokenKind::Eof => Some(Self::Eof),
-                ParensGrammarTokenKind::LeftParen => Some(Self::LeftParen),
-                ParensGrammarTokenKind::RightParen => Some(Self::RightParen),
-            }
-        }
-
         fn variant(&self) -> Self::VariantRepr {
             match self {
                 ParensGrammarToken::Epsilon => Self::VariantRepr::Epsilon,
@@ -942,13 +931,6 @@ mod tests {
 
         fn goal_variant() -> Self::VariantRepr {
             Self::VariantRepr::Goal
-        }
-
-        fn from_repr(src: &Self::VariantRepr) -> Option<Self> {
-            match src {
-                ParensGrammarSymbolKind::Goal => Some(Self::Goal),
-                ParensGrammarSymbolKind::Parens => Some(Self::Parens),
-            }
         }
 
         fn variant(&self) -> Self::VariantRepr {
