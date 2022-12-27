@@ -14,9 +14,10 @@ where
 {
     type VariantRepr;
 
+    const EPSILON_VARIANT: Self::VariantRepr;
+    const EOF_VARIANT: Self::VariantRepr;
+
     fn variant(&self) -> Self::VariantRepr;
-    fn epsilon_variant() -> Self::VariantRepr;
-    fn eof_variant() -> Self::VariantRepr;
 }
 
 /// A trait signifying that a type can be represented as a NonTerminal within
@@ -28,9 +29,9 @@ where
 {
     type VariantRepr;
 
+    const GOAL_VARIANT: Self::VariantRepr;
+
     fn variant(&self) -> Self::VariantRepr;
-    /// Attempts to convert a string representation to a corresponding nonterminal kind.
-    fn goal_variant() -> Self::VariantRepr;
 }
 
 pub trait GrammarElementHumanReadableRepresentable: std::fmt::Display {
@@ -278,9 +279,9 @@ impl<S: NonTerminalRepresentable, T: TerminalRepresentable> GrammarTable<S, T> {
     pub(crate) fn new() -> Self {
         let grammar_table = Self::default();
         grammar_table
-            .add_nonterminal(S::goal_variant())
-            .add_terminal(T::epsilon_variant())
-            .add_terminal(T::eof_variant())
+            .add_nonterminal(S::GOAL_VARIANT)
+            .add_terminal(T::EPSILON_VARIANT)
+            .add_terminal(T::EOF_VARIANT)
     }
 
     /// Adds a symbol to the table, returning its index. If the symbol already
@@ -902,13 +903,8 @@ mod tests {
     impl TerminalRepresentable for ParensGrammarToken {
         type VariantRepr = ParensGrammarTokenKind;
 
-        fn eof_variant() -> Self::VariantRepr {
-            Self::VariantRepr::Eof
-        }
-
-        fn epsilon_variant() -> Self::VariantRepr {
-            Self::VariantRepr::Epsilon
-        }
+        const EPSILON_VARIANT: Self::VariantRepr = Self::VariantRepr::Epsilon;
+        const EOF_VARIANT: Self::VariantRepr = Self::VariantRepr::Eof;
 
         fn variant(&self) -> Self::VariantRepr {
             match self {
@@ -929,9 +925,7 @@ mod tests {
     impl NonTerminalRepresentable for ParensGrammarSymbol {
         type VariantRepr = ParensGrammarSymbolKind;
 
-        fn goal_variant() -> Self::VariantRepr {
-            Self::VariantRepr::Goal
-        }
+        const GOAL_VARIANT: Self::VariantRepr = Self::VariantRepr::Goal;
 
         fn variant(&self) -> Self::VariantRepr {
             match self {
@@ -953,10 +947,10 @@ mod tests {
 
             let rules = [
                 (
-                    ParensGrammarSymbol::goal_variant(),
+                    ParensGrammarSymbol::GOAL_VARIANT,
                     vec![
                         nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarToken::eof_variant()),
+                        term_variant!(ParensGrammarToken::EOF_VARIANT),
                     ],
                 ),
                 (

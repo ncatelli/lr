@@ -263,7 +263,7 @@ fn initial_item_set<NT: NonTerminalRepresentable, T: TerminalRepresentable>(
     grammar_table: &GrammarTable<NT, T>,
 ) -> ItemSet {
     // safe to unwrap as eof is a builtin.
-    let eof_token_ref = grammar_table.terminal_mapping(&T::eof_variant()).unwrap();
+    let eof_token_ref = grammar_table.terminal_mapping(&T::EOF_VARIANT).unwrap();
     grammar_table
         .rules()
         .take(1)
@@ -296,7 +296,7 @@ where
 
     let mut first_set = SymbolTokenSet::new(&symbols);
 
-    let epsilon_token = T::epsilon_variant();
+    let epsilon_token = T::EPSILON_VARIANT;
     // map nullable nonterminals to epsilon
     for &symbol in nullable_nonterminals {
         first_set.insert(symbol, epsilon_token);
@@ -410,7 +410,7 @@ where
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(NT::goal_variant(), T::eof_variant());
+    follow_set.insert(NT::GOAL_VARIANT, T::EOF_VARIANT);
 
     let mut changed = true;
     while changed {
@@ -455,11 +455,10 @@ where
                     SymbolOrTokenRef::Symbol(idx) => {
                         let q_symbol = symbols[idx.as_usize()];
                         let q_first_set = first_sets.sets.get(&q_symbol).unwrap();
-                        let contains_epsilon = q_first_set.contains(&T::epsilon_variant());
+                        let contains_epsilon = q_first_set.contains(&T::EPSILON_VARIANT);
 
-                        let q_first_set_sans_epsilon = q_first_set
-                            .iter()
-                            .filter(|&tok| tok != &T::epsilon_variant());
+                        let q_first_set_sans_epsilon =
+                            q_first_set.iter().filter(|&tok| tok != &T::EPSILON_VARIANT);
 
                         for &t in q_first_set_sans_epsilon {
                             if follow_set.insert(b, t) {
@@ -623,7 +622,7 @@ where
                     SymbolOrTokenRef::Symbol(_) => None,
                     SymbolOrTokenRef::Token(idx) => tokens.get(idx.as_usize()),
                 });
-                if first_rhs_is_token == Some(&T::epsilon_variant()) {
+                if first_rhs_is_token == Some(&T::EPSILON_VARIANT) {
                     nullable_nonterminal_productions.insert(lhs);
                     done = false
                 } else {
@@ -1576,9 +1575,9 @@ where
             })?;
 
             let is_goal =
-                Some(i.production.lhs) == grammar_table.nonterminal_mapping(&NT::goal_variant());
+                Some(i.production.lhs) == grammar_table.nonterminal_mapping(&NT::GOAL_VARIANT);
             let is_goal_acceptor =
-                is_goal && symbol_after_dot.is_none() && (*lookahead_token == T::eof_variant());
+                is_goal && symbol_after_dot.is_none() && (*lookahead_token == T::EOF_VARIANT);
 
             // if not the last symbol and it's a token, setup a shift.
             if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
@@ -1594,7 +1593,7 @@ where
             // if it's the start action, accept
             if is_goal_acceptor {
                 // safe to unwrap, Eof builtin is guaranteed to exist.
-                let a = grammar_table.terminal_mapping(&T::eof_variant()).unwrap();
+                let a = grammar_table.terminal_mapping(&T::EOF_VARIANT).unwrap();
 
                 // Safe to assign without checks due all indexes being derived from known states.
                 action_table[a.as_usize()][x] = Action::Accept;
