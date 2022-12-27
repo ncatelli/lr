@@ -943,6 +943,8 @@ mod tests {
 
     #[test]
     fn should_parse_table_with_valid_test_grammar() {
+        use ParensGrammarSymbolKind::*;
+        use ParensGrammarTokenKind::*;
         let grammar_table = {
             let mut grammar_table = GrammarTable::<ParensGrammarSymbol, ParensGrammarToken>::new()
                 .add_nonterminal(ParensGrammarSymbolKind::Parens)
@@ -958,57 +960,57 @@ mod tests {
                     ],
                 ),
                 (
-                    ParensGrammarSymbolKind::Parens,
+                    Parens,
                     vec![
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::LeftParen),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::RightParen),
+                        nonterm_variant!(Parens),
+                        term_variant!(LeftParen),
+                        nonterm_variant!(Parens),
+                        term_variant!(RightParen),
                     ],
                 ),
                 (
-                    ParensGrammarSymbolKind::Parens,
+                    Parens,
                     vec![
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::LeftParen),
-                        term_variant!(ParensGrammarTokenKind::RightParen),
+                        nonterm_variant!(Parens),
+                        term_variant!(LeftParen),
+                        term_variant!(RightParen),
                     ],
                 ),
                 (
-                    ParensGrammarSymbolKind::Parens,
+                    Parens,
                     vec![
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::LeftParen),
-                        term_variant!(ParensGrammarTokenKind::RightParen),
+                        nonterm_variant!(Parens),
+                        nonterm_variant!(Parens),
+                        term_variant!(LeftParen),
+                        term_variant!(RightParen),
                     ],
                 ),
                 (
-                    ParensGrammarSymbolKind::Parens,
+                    Parens,
                     vec![
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::LeftParen),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::RightParen),
+                        nonterm_variant!(Parens),
+                        nonterm_variant!(Parens),
+                        term_variant!(LeftParen),
+                        nonterm_variant!(Parens),
+                        term_variant!(RightParen),
                     ],
                 ),
                 (
-                    ParensGrammarSymbolKind::Parens,
+                    Parens,
                     vec![
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::LeftParen),
-                        term_variant!(ParensGrammarTokenKind::RightParen),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
+                        nonterm_variant!(Parens),
+                        term_variant!(LeftParen),
+                        term_variant!(RightParen),
+                        nonterm_variant!(Parens),
                     ],
                 ),
                 (
-                    ParensGrammarSymbolKind::Parens,
+                    Parens,
                     vec![
-                        term_variant!(ParensGrammarTokenKind::LeftParen),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
-                        term_variant!(ParensGrammarTokenKind::RightParen),
-                        nonterm_variant!(ParensGrammarSymbolKind::Parens),
+                        term_variant!(LeftParen),
+                        nonterm_variant!(Parens),
+                        term_variant!(RightParen),
+                        nonterm_variant!(Parens),
                     ],
                 ),
             ];
