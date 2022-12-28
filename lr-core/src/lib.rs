@@ -1,7 +1,7 @@
 use grammar::GrammarLoadError;
 
-mod grammar;
-mod lr;
+pub mod grammar;
+pub mod lr;
 
 /// Represents the kind of table that can be generated
 pub enum GeneratorKind {
