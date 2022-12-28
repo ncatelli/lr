@@ -1,7 +1,10 @@
 use grammar::GrammarLoadError;
 
-mod grammar;
-mod lr;
+pub mod grammar;
+pub mod lr;
+
+pub use grammar::NonTerminalRepresentable;
+pub use grammar::TerminalRepresentable;
 
 /// Represents the kind of table that can be generated
 pub enum GeneratorKind {
@@ -56,11 +59,11 @@ impl std::fmt::Display for Error {
 
 #[allow(unused)]
 fn generate_table<G: AsRef<str>>(kind: GeneratorKind, grammar: G) -> Result<lr::LrTable, Error> {
-    use grammar::load_grammar;
+    use grammar::stringly_load_grammar;
 
     let grammar = grammar.as_ref();
     let grammar_table =
-        load_grammar(grammar).map_err(|e| Error::new(ErrorKind::GrammarError(e)))?;
+        stringly_load_grammar(grammar).map_err(|e| Error::new(ErrorKind::GrammarError(e)))?;
 
     match kind {
         GeneratorKind::Lr1 => {

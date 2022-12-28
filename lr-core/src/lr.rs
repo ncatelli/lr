@@ -1791,7 +1791,7 @@ mod tests {
 <factor> ::= <epsilon>\n
         ";
 
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
         assert!(grammar_table.is_ok());
 
         // safe to unwrap with assertion.
@@ -1806,7 +1806,7 @@ mod tests {
         assert!(no_nullable_nonterminals);
 
         // check a grammar containing an nullable non_terminal.
-        let grammar_table = load_grammar(grammar_with_epsilon);
+        let grammar_table = stringly_load_grammar(grammar_with_epsilon);
         assert!(grammar_table.is_ok());
 
         // safe to unwrap with assertion.
@@ -1832,7 +1832,7 @@ mod tests {
 <T> ::= <T> + 0
 ";
 
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
@@ -1879,7 +1879,7 @@ mod tests {
     #[test]
     fn follow_set_returns_expected_values() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
 
@@ -1926,7 +1926,7 @@ mod tests {
     #[test]
     fn closure_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
 
@@ -1977,7 +1977,7 @@ mod tests {
 <T> ::= <F> * <T>
 <T> ::= <F>
 <F> ::= n";
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
 
@@ -1995,7 +1995,7 @@ mod tests {
     #[test]
     fn goto_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
 
@@ -2029,7 +2029,7 @@ mod tests {
     #[test]
     fn collection_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         // safe to unwrap with assertion.
         assert!(grammar_table.is_ok());
@@ -2088,7 +2088,7 @@ mod tests {
 <T> ::= <F> * <T>
 <T> ::= <F>
 <F> ::= n";
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         // safe to unwrap with assertion.
         assert!(grammar_table.is_ok());
@@ -2122,7 +2122,7 @@ mod tests {
 <T> ::= <F> * <T>
 <T> ::= <F>
 <F> ::= 1";
-        let grammar_table = load_grammar(grammar);
+        let grammar_table = stringly_load_grammar(grammar);
 
         // safe to unwrap with assertion.
         assert!(grammar_table.is_ok());

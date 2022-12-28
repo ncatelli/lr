@@ -41,7 +41,7 @@ pub trait GrammarElementHumanReadableRepresentable: std::fmt::Display {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrToken<NT, T> {
+pub enum SymbolOrToken<NT, T> {
     Symbol(NT),
     Token(T),
 }
@@ -60,7 +60,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReferenceSymbolOrToken<'a, S, T> {
+pub enum ReferenceSymbolOrToken<'a, S, T> {
     Symbol(ReferenceSymbol<'a, S>),
     Token(ReferenceToken<'a, T>),
 }
@@ -80,14 +80,14 @@ where
 
 /// A wrapper type for symbols that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SymbolRef(usize);
+pub struct SymbolRef(usize);
 
 impl SymbolRef {
-    pub(crate) fn new(symbol: usize) -> Self {
+    pub fn new(symbol: usize) -> Self {
         Self(symbol)
     }
 
-    pub(crate) fn as_usize(&self) -> usize {
+    pub fn as_usize(&self) -> usize {
         self.0
     }
 }
@@ -109,14 +109,14 @@ impl std::fmt::Display for SymbolRef {
 
 /// A wrapper type for tokens that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TokenRef(usize);
+pub struct TokenRef(usize);
 
 impl TokenRef {
-    pub(crate) fn new(token: usize) -> Self {
+    pub fn new(token: usize) -> Self {
         Self(token)
     }
 
-    pub(crate) fn as_usize(&self) -> usize {
+    pub fn as_usize(&self) -> usize {
         self.0
     }
 }
@@ -137,7 +137,7 @@ impl std::fmt::Display for TokenRef {
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrTokenRef {
+pub enum SymbolOrTokenRef {
     Symbol(SymbolRef),
     Token(TokenRef),
 }
@@ -152,13 +152,13 @@ impl std::fmt::Display for SymbolOrTokenRef {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
-pub(crate) struct RuleRef {
+pub struct RuleRef {
     pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
 }
 
 impl RuleRef {
-    pub(crate) fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
+    pub fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
         let rule = Self::new_unchecked(lhs, rhs);
 
         if rule.is_valid() {
@@ -198,7 +198,7 @@ impl std::fmt::Display for RuleRef {
 
 /// A wrapper type for symbols borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ReferenceSymbol<'a, S>
+pub struct ReferenceSymbol<'a, S>
 where
     S: 'a,
 {
@@ -229,7 +229,7 @@ impl<'a, S: std::fmt::Display> std::fmt::Display for ReferenceSymbol<'a, S> {
 
 /// A wrapper type for tokens borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ReferenceToken<'a, T>
+pub struct ReferenceToken<'a, T>
 where
     T: 'a,
 {
@@ -259,7 +259,7 @@ impl<'a, T: std::fmt::Display> std::fmt::Display for ReferenceToken<'a, T> {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct GrammarTable<NT, T>
+pub struct GrammarTable<NT, T>
 where
     NT: NonTerminalRepresentable,
     T: TerminalRepresentable,
@@ -272,11 +272,11 @@ where
 }
 
 impl<S: NonTerminalRepresentable, T: TerminalRepresentable> GrammarTable<S, T> {
-    pub(crate) const ROOT_RULE_IDX: usize = 0;
+    pub const ROOT_RULE_IDX: usize = 0;
 
     /// Instantiates a new instance of a grammar table with a defined eof and
     /// epsilon terminal and goal non-terminal.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let grammar_table = Self::default();
         grammar_table
             .add_nonterminal(S::GOAL_VARIANT)
@@ -286,7 +286,7 @@ impl<S: NonTerminalRepresentable, T: TerminalRepresentable> GrammarTable<S, T> {
 
     /// Adds a symbol to the table, returning its index. If the symbol already
     /// exists, the index to the previously added symbol is returned.
-    pub(crate) fn add_nonterminal_mut(&mut self, symbol: S::VariantRepr) -> usize {
+    pub fn add_nonterminal_mut(&mut self, symbol: S::VariantRepr) -> usize {
         let new_id = self.nonterminals.len();
         self.nonterminals.entry(symbol).or_insert(new_id);
 
@@ -296,14 +296,14 @@ impl<S: NonTerminalRepresentable, T: TerminalRepresentable> GrammarTable<S, T> {
 
     /// Idempotently adds a nonterminal to a grammar table, returning the
     /// grammar table.
-    pub(crate) fn add_nonterminal(mut self, symbol: S::VariantRepr) -> Self {
+    pub fn add_nonterminal(mut self, symbol: S::VariantRepr) -> Self {
         self.add_nonterminal_mut(symbol);
         self
     }
 
     /// Adds a token to the table, returning its index. If the token already
     /// exists, the index to the previously added token is returned.
-    pub(crate) fn add_terminal_mut(&mut self, terminal: T::VariantRepr) -> usize {
+    pub fn add_terminal_mut(&mut self, terminal: T::VariantRepr) -> usize {
         let new_id = self.terminals.len();
 
         self.terminals.entry(terminal).or_insert(new_id);
@@ -313,37 +313,37 @@ impl<S: NonTerminalRepresentable, T: TerminalRepresentable> GrammarTable<S, T> {
 
     /// Idempotently adds a terminal to a grammar table, returning the grammar
     /// table.
-    pub(crate) fn add_terminal(mut self, terminal: T::VariantRepr) -> Self {
+    pub fn add_terminal(mut self, terminal: T::VariantRepr) -> Self {
         self.add_terminal_mut(terminal);
         self
     }
 
-    pub(crate) fn add_rule_mut(&mut self, rule: RuleRef) {
+    pub fn add_rule_mut(&mut self, rule: RuleRef) {
         self.rules.push(rule);
     }
 
-    pub(crate) fn add_rule(mut self, rule: RuleRef) -> Self {
+    pub fn add_rule(mut self, rule: RuleRef) -> Self {
         self.add_rule_mut(rule);
         self
     }
 
-    pub(crate) fn nonterminals(&self) -> NonTerminalIterator<S> {
+    pub fn nonterminals(&self) -> NonTerminalIterator<S> {
         NonTerminalIterator::new(self)
     }
 
-    pub(crate) fn terminals(&self) -> TerminalIterator<T> {
+    pub fn terminals(&self) -> TerminalIterator<T> {
         TerminalIterator::new(self)
     }
 
-    pub(crate) fn nonterminal_mapping(&self, symbol: &S::VariantRepr) -> Option<SymbolRef> {
+    pub fn nonterminal_mapping(&self, symbol: &S::VariantRepr) -> Option<SymbolRef> {
         self.nonterminals.get(symbol).map(|id| SymbolRef(*id))
     }
 
-    pub(crate) fn terminal_mapping(&self, token: &T::VariantRepr) -> Option<TokenRef> {
+    pub fn terminal_mapping(&self, token: &T::VariantRepr) -> Option<TokenRef> {
         self.terminals.get(token).map(|id| TokenRef(*id))
     }
 
-    pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
+    pub fn rules(&self) -> impl Iterator<Item = &RuleRef> {
         self.rules.iter()
     }
 }
@@ -526,7 +526,7 @@ impl<'a> Iterator for StringSymbolIterator<'a, String> {
 }
 
 /// An ordered iterator over all symbols in a grammar table.
-pub(crate) struct NonTerminalIterator<NT: NonTerminalRepresentable> {
+pub struct NonTerminalIterator<NT: NonTerminalRepresentable> {
     symbols: Vec<NT::VariantRepr>,
 }
 
@@ -586,7 +586,7 @@ impl<'a> Iterator for StringTokenIterator<'a, String> {
 }
 
 /// An ordered iterator over all tokens in a grammar table.
-pub(crate) struct TerminalIterator<T: TerminalRepresentable> {
+pub struct TerminalIterator<T: TerminalRepresentable> {
     tokens: Vec<T::VariantRepr>,
 }
 
@@ -669,7 +669,7 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub(crate) fn load_grammar<S: AsRef<str>>(
+pub(crate) fn stringly_load_grammar<S: AsRef<str>>(
     input: S,
 ) -> Result<StringGrammarTable<String, String>, GrammarLoadError> {
     let mut grammar_table = StringGrammarTable::default();
@@ -1030,7 +1030,7 @@ mod tests {
 
     #[test]
     fn should_parse_table_with_valid_string_test_grammar() {
-        let grammar_table = load_grammar(TEST_GRAMMAR);
+        let grammar_table = stringly_load_grammar(TEST_GRAMMAR);
 
         assert!(grammar_table.is_ok());
 
@@ -1045,7 +1045,7 @@ mod tests {
 
     #[test]
     fn should_error_on_invalid_rule() {
-        let res = load_grammar(
+        let res = stringly_load_grammar(
             "
 <expr> ::= ( <expr> )
 <expr> ::=  abcd
@@ -1060,7 +1060,7 @@ mod tests {
 
     #[test]
     fn should_error_on_conflicting_rule() {
-        let res = load_grammar(
+        let res = stringly_load_grammar(
             "
 <expr> ::= ( <expr> )
 <expr> ::= ( )
@@ -1076,7 +1076,7 @@ mod tests {
 
     #[test]
     fn should_iterate_symbols_in_order() {
-        let res = load_grammar(
+        let res = stringly_load_grammar(
             "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
@@ -1101,7 +1101,7 @@ mod tests {
 
     #[test]
     fn should_iterate_tokens_in_order() {
-        let res = load_grammar(
+        let res = stringly_load_grammar(
             "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>

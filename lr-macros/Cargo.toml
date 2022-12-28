@@ -1,5 +1,5 @@
 [package]
-name = "lr-derive"
+name = "lr-macros"
 version = "0.1.0"
 edition = "2021"
 workspace = ".."
@@ -8,6 +8,7 @@ workspace = ".."
 proc-macro = true
 
 [dependencies]
+lr-core = { path = "../lr-core" }
 syn = { version = "1.0", features = ["derive", "parsing", "full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
