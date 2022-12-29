@@ -1,12 +1,34 @@
 use std::collections::hash_map::HashMap;
+use std::hash::Hash;
+
+pub trait TerminalVariant<'a>: Copy + Eq + Hash + Ord + TryFrom<&'a str> {
+    fn from_str_repr(src: &'a str) -> Option<Self> {
+        Self::try_from(src).ok()
+    }
+}
+
+/// A trait signifying that a type can be represented as a Terminal within the
+/// grammar.
+pub trait TerminalRepresentable<'a>
+where
+    Self: Sized,
+    Self::VariantRepr: TerminalVariant<'a>,
+{
+    type VariantRepr;
+
+    const EPSILON_VARIANT: Self::VariantRepr;
+    const EOF_VARIANT: Self::VariantRepr;
+
+    fn variant(&self) -> Self::VariantRepr;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinSymbols {
+pub enum BuiltinSymbols {
     Goal,
 }
 
 impl BuiltinSymbols {
-    pub(crate) fn as_symbol(&self) -> &'static str {
+    pub fn as_symbol(&self) -> &'static str {
         match self {
             Self::Goal => "<*>",
         }
@@ -14,32 +36,30 @@ impl BuiltinSymbols {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinTokens {
+pub enum BuiltinTokens {
     Epsilon,
     Eof,
-    EndL,
 }
 
 impl BuiltinTokens {
-    pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
+    pub fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
         let val = token_str.as_ref();
-        [Self::Epsilon, Self::Eof, Self::EndL]
+        [Self::Epsilon, Self::Eof]
             .iter()
             .map(|builtin| builtin.as_token())
             .any(|builtin| builtin == val)
     }
 
-    pub(crate) fn as_token(&self) -> &'static str {
+    pub fn as_token(&self) -> &'static str {
         match self {
             BuiltinTokens::Epsilon => "<epsilon>",
             BuiltinTokens::Eof => "<$>",
-            BuiltinTokens::EndL => "<endl>",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrToken<'a> {
+pub enum SymbolOrToken<'a> {
     Symbol(Symbol<'a>),
     Token(Token<'a>),
 }
@@ -55,14 +75,14 @@ impl<'a> std::fmt::Display for SymbolOrToken<'a> {
 
 /// A wrapper type for symbols that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SymbolRef(usize);
+pub struct SymbolRef(usize);
 
 impl SymbolRef {
-    pub(crate) fn new(symbol: usize) -> Self {
+    pub fn new(symbol: usize) -> Self {
         Self(symbol)
     }
 
-    pub(crate) fn as_usize(&self) -> usize {
+    pub fn as_usize(&self) -> usize {
         self.0
     }
 }
@@ -84,14 +104,14 @@ impl std::fmt::Display for SymbolRef {
 
 /// A wrapper type for tokens that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TokenRef(usize);
+pub struct TokenRef(usize);
 
 impl TokenRef {
-    pub(crate) fn new(token: usize) -> Self {
+    pub fn new(token: usize) -> Self {
         Self(token)
     }
 
-    pub(crate) fn as_usize(&self) -> usize {
+    pub fn as_usize(&self) -> usize {
         self.0
     }
 }
@@ -112,7 +132,7 @@ impl std::fmt::Display for TokenRef {
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrTokenRef {
+pub enum SymbolOrTokenRef {
     Symbol(SymbolRef),
     Token(TokenRef),
 }
@@ -127,13 +147,13 @@ impl std::fmt::Display for SymbolOrTokenRef {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
-pub(crate) struct RuleRef {
+pub struct RuleRef {
     pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
 }
 
 impl RuleRef {
-    pub(crate) fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
+    pub fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
         let rule = Self::new_unchecked(lhs, rhs);
 
         if rule.is_valid() {
@@ -173,10 +193,10 @@ impl std::fmt::Display for RuleRef {
 
 /// A wrapper type for symbols borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Symbol<'a>(&'a str);
+pub struct Symbol<'a>(&'a str);
 
 impl<'a> Symbol<'a> {
-    pub(crate) fn new(symbol: &'a str) -> Self {
+    pub fn new(symbol: &'a str) -> Self {
         Self(symbol)
     }
 }
@@ -206,10 +226,10 @@ impl<'a> From<&'a str> for Symbol<'a> {
 
 /// A wrapper type for tokens borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Token<'a>(&'a str);
+pub struct Token<'a>(&'a str);
 
 impl<'a> Token<'a> {
-    pub(crate) fn new(token: &'a str) -> Self {
+    pub fn new(token: &'a str) -> Self {
         Self(token)
     }
 }
@@ -238,8 +258,8 @@ impl<'a> std::fmt::Display for Token<'a> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable {
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     rules: Vec<RuleRef>,
@@ -250,7 +270,7 @@ impl GrammarTable {
 
     /// Adds a symbol to the table, returning its index. If the symbol already
     /// exists, the index to the previously added symbol is returned.
-    fn add_symbol_mut<S: AsRef<str>>(&mut self, symbol: S) -> usize {
+    pub fn add_symbol_mut<S: AsRef<str>>(&mut self, symbol: S) -> usize {
         let symbol = symbol.as_ref();
         let new_id = self.symbols.len();
 
@@ -262,7 +282,7 @@ impl GrammarTable {
 
     /// Adds a token to the table, returning its index. If the token already
     /// exists, the index to the previously added token is returned.
-    fn add_token_mut<S: AsRef<str>>(&mut self, token: S) -> usize {
+    pub fn add_token_mut<S: AsRef<str>>(&mut self, token: S) -> usize {
         let token = token.as_ref();
         let new_id = self.tokens.len();
 
@@ -271,15 +291,15 @@ impl GrammarTable {
         self.tokens.get(token).copied().unwrap()
     }
 
-    fn add_rule_mut(&mut self, rule: RuleRef) {
+    pub fn add_rule_mut(&mut self, rule: RuleRef) {
         self.rules.push(rule);
     }
 
-    pub(crate) fn symbols(&self) -> SymbolIterator {
+    pub fn symbols(&self) -> SymbolIterator {
         SymbolIterator::new(self)
     }
 
-    pub(crate) fn tokens(&self) -> TokenIterator {
+    pub fn tokens(&self) -> TokenIterator {
         TokenIterator::new(self)
     }
 
@@ -300,7 +320,7 @@ impl GrammarTable {
             .unwrap()
     }
 
-    pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
+    pub fn rules(&self) -> impl Iterator<Item = &RuleRef> {
         self.rules.iter()
     }
 }
@@ -339,7 +359,7 @@ impl std::fmt::Display for GrammarTable {
 }
 
 /// An ordered iterator over all symbols in a grammar table.
-pub(crate) struct SymbolIterator<'a> {
+pub struct SymbolIterator<'a> {
     symbols: Vec<&'a str>,
 }
 
@@ -368,7 +388,7 @@ impl<'a> Iterator for SymbolIterator<'a> {
 }
 
 /// An ordered iterator over all tokens in a grammar table.
-pub(crate) struct TokenIterator<'a> {
+pub struct TokenIterator<'a> {
     tokens: Vec<&'a str>,
 }
 
@@ -455,11 +475,7 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
     grammar_table.add_symbol_mut(BuiltinSymbols::Goal.as_symbol());
 
     // add default tokens
-    let builtin_tokens = [
-        BuiltinTokens::Epsilon,
-        BuiltinTokens::Eof,
-        BuiltinTokens::EndL,
-    ];
+    let builtin_tokens = [BuiltinTokens::Epsilon, BuiltinTokens::Eof];
 
     for builtin_tokens in builtin_tokens {
         let symbol_string_repr = builtin_tokens.as_token().to_string();
@@ -625,8 +641,8 @@ mod tests {
         let grammar_table = grammar_table.unwrap();
 
         assert_eq!(2, grammar_table.symbols.len());
-        // 3 builtins plus `(` and `)`
-        assert_eq!(5, grammar_table.tokens.len());
+        // 2 builtins plus `(` and `)`
+        assert_eq!(4, grammar_table.tokens.len());
         assert_eq!(7, grammar_table.rules.len());
     }
 
