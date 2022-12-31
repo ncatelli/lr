@@ -1,6 +1,6 @@
 use lr_core::grammar;
-use proc_macro2::TokenStream;
-use syn::{custom_punctuation, parse::Parse, parse_macro_input, Block, Ident};
+use proc_macro2::{Span, TokenStream};
+use syn::{custom_punctuation, parse::Parse, parse_macro_input, Block, Ident, Token};
 
 struct Rules(Vec<Rule>);
 
@@ -30,14 +30,64 @@ impl AsRef<[Rule]> for Rules {
     }
 }
 
+struct SymbolIdent {
+    span: Span,
+    ident: Ident,
+}
+
+impl Parse for SymbolIdent {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let span = input.span();
+
+        let _ = input.parse::<Token![<]>()?;
+        let sym = input.parse::<Ident>()?;
+        let _ = input.parse::<Token![>]>()?;
+
+        Ok(SymbolIdent { span, ident: sym })
+    }
+}
+
+struct TokenIdent {
+    span: Span,
+    ident: Ident,
+}
+
+impl Parse for TokenIdent {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let span = input.span();
+
+        let tok = input.parse::<Ident>()?;
+
+        Ok(TokenIdent { span, ident: tok })
+    }
+}
+
+enum SymbolOrTokenIdent {
+    Symbol(SymbolIdent),
+    Token(TokenIdent),
+}
+
+impl Parse for SymbolOrTokenIdent {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let span = input.span();
+        let lookahead = input.lookahead1();
+
+        if lookahead.peek(Token![<]) {
+            SymbolIdent::parse(input).map(SymbolOrTokenIdent::Symbol)
+        } else {
+            TokenIdent::parse(input).map(SymbolOrTokenIdent::Token)
+        }
+    }
+}
+
 struct Rule {
-    lhs: Ident,
-    rhs: Vec<Ident>,
+    lhs: SymbolIdent,
+    rhs: Vec<SymbolOrTokenIdent>,
     action: Block,
 }
 
 impl Rule {
-    fn new(lhs: Ident, rhs: Vec<Ident>, action: Block) -> Self {
+    fn new(lhs: SymbolIdent, rhs: Vec<SymbolOrTokenIdent>, action: Block) -> Self {
         Self { lhs, rhs, action }
     }
 }
@@ -46,7 +96,7 @@ impl Parse for Rule {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         custom_punctuation!(RuleDefinitionDelimiter, ::=);
 
-        let lhs = input.parse::<Ident>()?;
+        let lhs = input.parse::<SymbolIdent>()?;
         let _ = input.parse::<RuleDefinitionDelimiter>()?;
 
         let mut rhs = vec![];
@@ -54,7 +104,7 @@ impl Parse for Rule {
             if let Ok(action) = input.parse::<Block>() {
                 return Ok(Rule::new(lhs, rhs, action));
             } else {
-                let next = input.parse::<Ident>()?;
+                let next = input.parse::<SymbolOrTokenIdent>()?;
                 rhs.push(next);
             }
         }

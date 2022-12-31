@@ -258,11 +258,15 @@ impl<'a> std::fmt::Display for Token<'a> {
     }
 }
 
+#[derive(Debug)]
+pub struct Action(String);
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     rules: Vec<RuleRef>,
+    actions: Vec<String>,
 }
 
 impl GrammarTable {
@@ -293,6 +297,11 @@ impl GrammarTable {
 
     pub fn add_rule_mut(&mut self, rule: RuleRef) {
         self.rules.push(rule);
+    }
+
+    pub fn add_rule_with_action_mut(&mut self, rule: RuleRef, action: String) {
+        self.rules.push(rule);
+        self.actions.push(action);
     }
 
     pub fn symbols(&self) -> SymbolIterator {

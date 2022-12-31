@@ -17,8 +17,8 @@ impl TryFrom<&str> for ParensGrammarTokenKind {
         match value {
             "<epsilon>" => Ok(Self::Epsilon),
             "<eof>" => Ok(Self::Eof),
-            "(" => Ok(Self::LeftParen),
-            ")" => Ok(Self::RightParen),
+            "LeftParen" | "(" => Ok(Self::LeftParen),
+            "RightParen" | ")" => Ok(Self::RightParen),
             other => Err(format!("unknown variant: {:?}", other)),
         }
     }
@@ -50,12 +50,6 @@ impl<'a> grammar::TerminalRepresentable<'a> for ParensGrammarToken {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum ParensGrammarSymbolKind {
-    Goal,
-    Parens,
-}
-
 #[derive(Debug)]
 enum ParensGrammarSymbol {
     Goal,
@@ -63,15 +57,15 @@ enum ParensGrammarSymbol {
 }
 
 fn main() {
-    use ParensGrammarSymbolKind::*;
     use ParensGrammarTokenKind::*;
 
-    parser_gen! (
-        Parens ::= LeftParen Parens RightParen { ParensGrammarSymbol::Parens }
-        Parens ::= LeftParen RightParen { ParensGrammarSymbol::Parens }
-        Parens ::= Parens LeftParen RightParen { ParensGrammarSymbol::Parens }
-        Parens ::= Parens LeftParen Parens RightParen { ParensGrammarSymbol::Parens }
-        Parens ::= LeftParen RightParen Parens { ParensGrammarSymbol::Parens }
-        Parens ::= LeftParen Parens RightParen Parens { ParensGrammarSymbol::Parens }
-    );
+    /*
+    parser_gen! ("
+        <parens> ::= ( <parens> ) { ParensGrammarSymbol::Parens }
+        <parens> ::= ( ) { ParensGrammarSymbol::Parens }
+        <parens> ::= <parens> ( ) { ParensGrammarSymbol::Parens }
+        <parens> ::= <parens> ( <parens> ) { ParensGrammarSymbol::Parens }
+        <parens> ::= ( ) <parens> { ParensGrammarSymbol::Parens }
+        <parens> ::= ( <parens> ) <parens> { ParensGrammarSymbol::Parens }
+    ");*/
 }
