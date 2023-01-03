@@ -487,131 +487,6 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
-    let mut grammar_table = GrammarTable::default();
-
-    // initial table
-    let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
-    let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
-    grammar_table.add_rule_mut(root_rule);
-    grammar_table.add_symbol_mut(BuiltinSymbols::Goal.as_symbol());
-
-    // add default tokens
-    let builtin_tokens = [BuiltinTokens::Epsilon, BuiltinTokens::Eof];
-
-    for builtin_tokens in builtin_tokens {
-        let symbol_string_repr = builtin_tokens.as_token().to_string();
-        grammar_table.add_token_mut(symbol_string_repr);
-    }
-
-    // breakup input into enumerated lines.
-    let lines = input
-        .as_ref()
-        .lines()
-        .enumerate()
-        .map(|(lineno, line)| (lineno + 1, line));
-
-    let lines_containing_rules = lines
-        // ignore commented lines.
-        .filter(|(_, line)| !line.starts_with(';'))
-        // ignore empty lines.
-        .filter(|(_, line)| !line.chars().all(|c| c.is_whitespace()));
-
-    for (lineno, line) in lines_containing_rules {
-        let trimmed_line = line.trim();
-
-        // validate the start of the line is a symbol
-        if !trimmed_line.starts_with('<') {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: doesn't start with symbol", lineno)));
-        }
-
-        // split the line at the assignment delimiter
-        let mut split_line = trimmed_line.split("::=").collect::<Vec<_>>();
-        if split_line.len() != 2 {
-            return Err(
-                GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule).with_data(format!(
-                    "lineno {}: does not contain right-hand side",
-                    lineno
-                )),
-            );
-        }
-
-        // safe to assume this will have a value from above checks.
-        let rhs = split_line
-            .pop()
-            .map(|rhs| rhs.trim())
-            // break each rhs predicate up by whitespace
-            .map(|str| str.split_whitespace())
-            .unwrap();
-        let lhs = split_line.pop().map(|lhs| lhs.trim()).unwrap();
-
-        // retrieve the LHS symbol.
-        let lhs_symbol = symbol_value_from_str(lhs).ok_or_else(|| {
-            GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: doesn't start with symbol", lineno))
-        })?;
-
-        let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
-        let rule_ref = SymbolRef::from(rule_id);
-        let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
-
-        // add tokens and fill the rule.
-        for elem in rhs {
-            if let Some(symbol) = symbol_value_from_str(elem) {
-                let symbol_id = {
-                    let symbol_id = grammar_table.add_symbol_mut(symbol);
-                    let symbol_ref = SymbolRef::new(symbol_id);
-
-                    SymbolOrTokenRef::Symbol(symbol_ref)
-                };
-                rule.rhs.push(symbol_id);
-            // validate all token values are single length.
-            } else if let Some(token) = token_value_from_str(elem) {
-                let token_id = {
-                    let token_id = grammar_table.add_token_mut(token);
-                    let token_ref = TokenRef::from(token_id);
-
-                    SymbolOrTokenRef::Token(token_ref)
-                };
-                rule.rhs.push(token_id);
-            } else {
-                return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                    .with_data(format!("lineno {}: invalid rhs value ({})", lineno, elem)));
-            }
-        }
-
-        if grammar_table.rules.contains(&rule) {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
-                .with_data(format!("lineno {}: {} ", lineno, &rule)));
-        } else if !rule.is_valid() {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: {} ", lineno, &rule)));
-        } else {
-            grammar_table.add_rule_mut(rule)
-        }
-    }
-
-    // add the first production to the goal.
-    let root_production = grammar_table
-        .rules()
-        .next()
-        .map(|rule_ref| rule_ref.lhs)
-        .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
-    let first_non_root_production = grammar_table
-        .rules()
-        .nth(1)
-        .map(|rule_ref| rule_ref.lhs)
-        .map(SymbolOrTokenRef::Symbol)
-        .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
-
-    grammar_table.rules[root_production.as_usize()]
-        .rhs
-        .push(first_non_root_production);
-
-    Ok(grammar_table)
-}
-
 struct SegmentedRule {
     lhs: String,
     rhs: Vec<String>,
@@ -663,9 +538,7 @@ fn parse_rule<S: AsRef<str>>(rule: S) -> Result<SegmentedRule, GrammarLoadError>
     Ok(SegmentedRule::new(lhs.to_string(), rhs, action.to_string()))
 }
 
-pub(crate) fn load_grammar_with_action<S: AsRef<str>>(
-    input: S,
-) -> Result<GrammarTable, GrammarLoadError> {
+pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
     let mut grammar_table = GrammarTable::default();
 
     // initial table
@@ -834,12 +707,12 @@ mod tests {
 
     const TEST_GRAMMAR: &str = "
 ; a comment
-<parens> ::= ( <parens> )
-<parens> ::= ( )
-<parens> ::= <parens> ( )
-<parens> ::= <parens> ( <parens> )
-<parens> ::= ( ) <parens>
-<parens> ::= ( <parens> ) <parens>
+<parens> ::= ( <parens> ) { }
+<parens> ::= ( ) { }
+<parens> ::= <parens> ( ) { }
+<parens> ::= <parens> ( <parens> ) { }
+<parens> ::= ( ) <parens> { }
+<parens> ::= ( <parens> ) <parens> { }
 ";
 
     #[test]
@@ -858,39 +731,11 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_valid_test_grammar_with_actions() {
-        let grammar = "
-; a comment
-<parens> ::= ( <parens> ) { }
-<parens> ::= ( ) { }
-<parens> ::= <parens> ( ) { }
-<parens> ::= <parens> ( <parens> ) { }
-<parens> ::= ( ) <parens> { }
-<parens> ::= ( <parens> ) <parens> { }
-";
-
-        let grammar_table = load_grammar_with_action(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
-
-        println!("{:#?}", &grammar_table);
-
-        assert_eq!(2, grammar_table.symbols.len());
-        // 2 builtins plus `(` and `)`
-        assert_eq!(4, grammar_table.tokens.len());
-        assert_eq!(7, grammar_table.rules.len());
-        assert_eq!(7, grammar_table.actions.len());
-    }
-
-    #[test]
     fn should_error_on_invalid_rule() {
         let res = load_grammar(
             "
-<expr> ::= ( <expr> )
-<expr> ::=  abcd
+<expr> ::= ( <expr> ) { }
+<expr> ::=  abcd { }
         ",
         );
 
@@ -904,9 +749,9 @@ mod tests {
     fn should_error_on_conflicting_rule() {
         let res = load_grammar(
             "
-<expr> ::= ( <expr> )
-<expr> ::= ( )
-<expr> ::= ( ) 
+<expr> ::= ( <expr> ) { }
+<expr> ::= ( ) { }
+<expr> ::= ( ) { }
         ",
         );
 
@@ -920,9 +765,9 @@ mod tests {
     fn should_iterate_symbols_in_order() {
         let res = load_grammar(
             "
-<expr> ::= ( <expr> )
-<expr> ::= <addition>
-<addition> ::= <expr> + <expr>  
+<expr> ::= ( <expr> ) { }
+<expr> ::= <addition> { }
+<addition> ::= <expr> + <expr> { }
         ",
         );
 
@@ -944,9 +789,9 @@ mod tests {
     fn should_iterate_tokens_in_order() {
         let res = load_grammar(
             "
-<expr> ::= ( <expr> )
-<expr> ::= <addition>
-<addition> ::= <expr> + <expr>  
+<expr> ::= ( <expr> ) { }
+<expr> ::= <addition> { }
+<addition> ::= <expr> + <expr> { }
         ",
         );
 

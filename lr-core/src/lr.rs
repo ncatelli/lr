@@ -926,25 +926,25 @@ fn build_table<'a>(
 mod tests {
     use super::*;
 
-    const TEST_GRAMMAR: &str = "<E> ::= <T>
-<E> ::= ( <E> )
-<T> ::= n
-<T> ::= + <T>
-<T> ::= <T> + n
+    const TEST_GRAMMAR: &str = "<E> ::= <T> { }
+<E> ::= ( <E> ) { }
+<T> ::= n { }
+<T> ::= + <T> { }
+<T> ::= <T> + n { }
 ";
 
     #[test]
     fn should_parse_set_with_nullable_nonterminal() {
         let grammar = "
-<expr> ::= <expr> + <term>
-<term> ::= <term> * <factor>
-<expr> ::= <term>
-<term> ::= <factor>
-<factor> ::= 0
+<expr> ::= <expr> + <term> { }
+<term> ::= <term> * <factor> { }
+<expr> ::= <term> { }
+<term> ::= <factor> { }
+<factor> ::= 0 { }
 ";
         let grammar_with_epsilon = "
- <term> ::= 0\n
-<factor> ::= <epsilon>\n
+ <term> ::= 0 { }
+<factor> ::= <epsilon> { }
         ";
 
         let grammar_table = load_grammar(grammar);
@@ -978,11 +978,11 @@ mod tests {
 
     #[test]
     fn first_set_returns_expected_values() {
-        let grammar = "<E> ::= <T>
-<E> ::= ( <E> )
-<T> ::= 0
-<T> ::= + <T>
-<T> ::= <T> + 0
+        let grammar = "<E> ::= <T> { }
+<E> ::= ( <E> ) { }
+<T> ::= 0 { }
+<T> ::= + <T> { }
+<T> ::= <T> + 0 { }
 ";
 
         let grammar_table = load_grammar(grammar);
@@ -1109,11 +1109,11 @@ mod tests {
         }
 
         let grammar = "
-<E> ::= <T> - <E>
-<E> ::= <T>
-<T> ::= <F> * <T>
-<T> ::= <F>
-<F> ::= n";
+<E> ::= <T> - <E> { }
+<E> ::= <T> { }
+<T> ::= <F> * <T> { }
+<T> ::= <F> { }
+<F> ::= n { }";
         let grammar_table = load_grammar(grammar);
 
         assert!(grammar_table.is_ok());
@@ -1220,11 +1220,11 @@ mod tests {
     #[test]
     fn build_canonical_collection_generates_expected_states() {
         let grammar = "
-<E> ::= <T> - <E>
-<E> ::= <T>
-<T> ::= <F> * <T>
-<T> ::= <F>
-<F> ::= n";
+<E> ::= <T> - <E> { }
+<E> ::= <T> { }
+<T> ::= <F> * <T> { }
+<T> ::= <F> { }
+<F> ::= n { }";
         let grammar_table = load_grammar(grammar);
 
         // safe to unwrap with assertion.
@@ -1254,11 +1254,11 @@ mod tests {
     #[test]
     fn should_build_expected_table_from_grammar() {
         let grammar = "
-<E> ::= <T> - <E>
-<E> ::= <T>
-<T> ::= <F> * <T>
-<T> ::= <F>
-<F> ::= 1";
+<E> ::= <T> - <E> { }
+<E> ::= <T> { }
+<T> ::= <F> * <T> { }
+<T> ::= <F> { }
+<F> ::= 1 { }";
         let grammar_table = load_grammar(grammar);
 
         // safe to unwrap with assertion.
