@@ -24,7 +24,7 @@ impl TryFrom<&str> for ParensGrammarTokenKind {
     }
 }
 
-impl<'a> grammar::TerminalVariant<'a> for ParensGrammarTokenKind {}
+impl<'a> TerminalVariant<'a> for ParensGrammarTokenKind {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ParensGrammarToken {
@@ -34,7 +34,7 @@ enum ParensGrammarToken {
     RightParen,
 }
 
-impl<'a> grammar::TerminalRepresentable<'a> for ParensGrammarToken {
+impl<'a> TerminalRepresentable<'a> for ParensGrammarToken {
     type VariantRepr = ParensGrammarTokenKind;
 
     const EPSILON_VARIANT: Self::VariantRepr = Self::VariantRepr::Epsilon;

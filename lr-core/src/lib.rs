@@ -1,73 +1,22 @@
-use grammar::GrammarLoadError;
+use core::hash::Hash;
 
-pub mod grammar;
-pub mod lr;
-
-/// Represents the kind of table that can be generated
-pub enum GeneratorKind {
-    /// LR(1) Grammar
-    Lr1,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ErrorKind {
-    GrammarError(GrammarLoadError),
-    TableGenerationError(lr::TableGenError),
-}
-
-impl std::fmt::Display for ErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::GrammarError(err) => write!(f, "grammar error: {}", err),
-            Self::TableGenerationError(err) => write!(f, "table generation error: {}", err),
-        }
+pub trait TerminalVariant<'a>: Copy + Eq + Hash + Ord + TryFrom<&'a str> {
+    fn from_str_repr(src: &'a str) -> Option<Self> {
+        Self::try_from(src).ok()
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Error {
-    kind: ErrorKind,
-    data: Option<String>,
-}
+/// A trait signifying that a type can be represented as a Terminal within the
+/// grammar.
+pub trait TerminalRepresentable<'a>
+where
+    Self: Sized,
+    Self::VariantRepr: TerminalVariant<'a>,
+{
+    type VariantRepr;
 
-impl Error {
-    pub fn new(kind: ErrorKind) -> Self {
-        Self { kind, data: None }
-    }
+    const EPSILON_VARIANT: Self::VariantRepr;
+    const EOF_VARIANT: Self::VariantRepr;
 
-    pub fn with_data_mut(&mut self, data: String) {
-        self.data = Some(data)
-    }
-
-    pub fn with_data(mut self, data: String) -> Self {
-        self.with_data_mut(data);
-        self
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.data {
-            Some(ctx) => write!(f, "{}: {}", &self.kind, ctx),
-            None => write!(f, "{}", &self.kind),
-        }
-    }
-}
-
-#[allow(unused)]
-fn generate_table<G: AsRef<str>>(kind: GeneratorKind, grammar: G) -> Result<lr::LrTable, Error> {
-    use grammar::load_grammar;
-
-    let grammar = grammar.as_ref();
-    let grammar_table =
-        load_grammar(grammar).map_err(|e| Error::new(ErrorKind::GrammarError(e)))?;
-
-    match kind {
-        GeneratorKind::Lr1 => {
-            use crate::lr::LrTableGenerator;
-
-            crate::lr::Lr1::generate_table(&grammar_table)
-                .map_err(|e| Error::new(ErrorKind::TableGenerationError(e)))
-        }
-    }
+    fn variant(&self) -> Self::VariantRepr;
 }
