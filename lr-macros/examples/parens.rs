@@ -59,13 +59,14 @@ enum ParensGrammarSymbol {
 fn main() {
     use ParensGrammarTokenKind::*;
 
-    /*
-    parser_gen! ("
+    parser_gen!(
+        "
         <parens> ::= ( <parens> ) { ParensGrammarSymbol::Parens }
         <parens> ::= ( ) { ParensGrammarSymbol::Parens }
         <parens> ::= <parens> ( ) { ParensGrammarSymbol::Parens }
         <parens> ::= <parens> ( <parens> ) { ParensGrammarSymbol::Parens }
         <parens> ::= ( ) <parens> { ParensGrammarSymbol::Parens }
         <parens> ::= ( <parens> ) <parens> { ParensGrammarSymbol::Parens }
-    ");*/
+    "
+    );
 }
