@@ -517,7 +517,7 @@ fn parse_rule<S: AsRef<str>>(rule: S) -> Result<SegmentedRule, GrammarLoadError>
     Ok(SegmentedRule::new(lhs.to_string(), rhs, action.to_string()))
 }
 
-pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
+pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
     let mut grammar_table = GrammarTable::default();
 
     // initial table

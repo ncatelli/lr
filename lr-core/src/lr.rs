@@ -49,7 +49,7 @@ impl std::fmt::Display for TableGenError {
 }
 
 /// Exposes a trait for generating an LR table from a grammar.
-pub(crate) trait LrTableGenerator {
+pub trait LrTableGenerator {
     fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError>;
 }
 
@@ -117,7 +117,7 @@ impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
 }
 
 /// A wrapper type for Lr1 Parser tables.
-pub(crate) struct Lr1;
+pub struct Lr1;
 
 impl LrTableGenerator for Lr1 {
     fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError> {
@@ -680,10 +680,10 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
 /// Represents one of 4 valid actions for the action table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Action {
+pub enum Action {
     /// The goal state has been reached and a parse can be accepted.
     Accept,
-    /// Shift the input on to the token stream.
+    /// Shift the input on to the token stack.
     Shift(usize),
     /// Reduce the rule to a previous state and type.
     Reduce(usize),
@@ -698,7 +698,7 @@ impl Default for Action {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Goto {
+pub enum Goto {
     State(usize),
     DeadState,
 }
@@ -710,10 +710,10 @@ impl Default for Goto {
 }
 
 #[derive(Debug)]
-pub(crate) struct LrTable {
-    states: usize,
-    goto: Vec<Vec<Goto>>,
-    action: Vec<Vec<Action>>,
+pub struct LrTable {
+    pub states: usize,
+    pub goto: Vec<Vec<Goto>>,
+    pub action: Vec<Vec<Action>>,
 }
 
 impl LrTable {
@@ -727,7 +727,7 @@ impl LrTable {
 
     /// Outputs a human-readable representation of the grammar table.
     #[allow(unused)]
-    pub(crate) fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+    pub fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
         const DEAD_STATE_STR: &str = " ";
 
         let left_side_padding = 8;
