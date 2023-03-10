@@ -21,6 +21,7 @@ enum ReducerAction {
 }
 
 enum AttributeKind {
+    Goal,
     Rule,
 }
 
@@ -143,19 +144,22 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
                 .filter_map(|attr| {
                     if attr.path.is_ident("rule") {
                         Some((AttributeKind::Rule, attr))
+                    } else if attr.path.is_ident("goal") {
+                        Some((AttributeKind::Goal, attr))
                     } else {
                         None
                     }
                 })
                 .map(|(kind, attr)| match kind {
+                    AttributeKind::Goal => todo!(),
                     AttributeKind::Rule => {
                         attr.parse_args_with(RuleAttributeMetadata::parse)
-                            .and_then(|mam| {
+                            .and_then(|ram| {
                                 match variant_fields.clone() {
                                     // an unamed struct with one field
-                                    Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(mam),
+                                    Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
                                     // an empty filed
-                                    Fields::Unit => Ok(mam),
+                                    Fields::Unit => Ok(ram),
                                     l => Err(syn::Error::new(
                                         l.span(),
                                         format!(
@@ -187,7 +191,7 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
 }
 
 /// The dispatcher method for tokens annotated with the Lr1 derive.
-#[proc_macro_derive(Lr1, attributes(rule))]
+#[proc_macro_derive(Lr1, attributes(goal, rule))]
 pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
