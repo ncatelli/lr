@@ -338,6 +338,40 @@ impl std::fmt::Display for GrammarTable {
     }
 }
 
+/// Defines a [GrammarTable] builder that initializes a grammar table with a
+/// common set of predefined rules and symbols.
+pub(crate) struct DefaultInitializedGrammarTableBuilder;
+
+impl DefaultInitializedGrammarTableBuilder {
+    const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
+    const DEFAULT_TOKENS: [BuiltinTokens; 3] = [
+        BuiltinTokens::Epsilon,
+        BuiltinTokens::Eof,
+        BuiltinTokens::EndL,
+    ];
+
+    pub(crate) fn initialize_grammar_table() -> GrammarTable {
+        let mut grammar_table = GrammarTable::default();
+
+        // initial table
+        let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
+        let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
+        grammar_table.add_rule_mut(root_rule);
+
+        for builtin_symbol in Self::DEFAULT_SYMBOLS {
+            grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
+        }
+
+        // add default tokens
+        for builtin_token in Self::DEFAULT_TOKENS {
+            let symbol_string_repr = builtin_token.as_token().to_string();
+            grammar_table.add_token_mut(symbol_string_repr);
+        }
+
+        grammar_table
+    }
+}
+
 /// An ordered iterator over all symbols in a grammar table.
 pub(crate) struct SymbolIterator<'a> {
     symbols: Vec<&'a str>,
@@ -445,26 +479,15 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
+pub(crate) fn define_rule_mut<S: AsRef<str>>(
+    grammar: &mut GrammarTable,
+    input: S,
+) -> Result<RuleRef, GrammarLoadError> {
+    todo!()
+}
+
 pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
-    let mut grammar_table = GrammarTable::default();
-
-    // initial table
-    let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
-    let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
-    grammar_table.add_rule_mut(root_rule);
-    grammar_table.add_symbol_mut(BuiltinSymbols::Goal.as_symbol());
-
-    // add default tokens
-    let builtin_tokens = [
-        BuiltinTokens::Epsilon,
-        BuiltinTokens::Eof,
-        BuiltinTokens::EndL,
-    ];
-
-    for builtin_tokens in builtin_tokens {
-        let symbol_string_repr = builtin_tokens.as_token().to_string();
-        grammar_table.add_token_mut(symbol_string_repr);
-    }
+    let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_grammar_table();
 
     // breakup input into enumerated lines.
     let lines = input
