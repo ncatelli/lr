@@ -480,10 +480,78 @@ impl std::fmt::Display for GrammarLoadError {
 }
 
 pub(crate) fn define_rule_mut<S: AsRef<str>>(
-    grammar: &mut GrammarTable,
-    input: S,
-) -> Result<RuleRef, GrammarLoadError> {
-    todo!()
+    grammar_table: &mut GrammarTable,
+    line: S,
+) -> Result<(), GrammarLoadError> {
+    let trimmed_line = line.as_ref().trim();
+
+    // validate the start of the line is a symbol
+    if !trimmed_line.starts_with('<') {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data("doesn't start with symbol".to_string()));
+    }
+
+    // split the line at the assignment delimiter
+    let mut split_line = trimmed_line.split("::=").collect::<Vec<_>>();
+    if split_line.len() != 2 {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data("does not contain right-hand side".to_string()));
+    }
+
+    // safe to assume this will have a value from above checks.
+    let rhs = split_line
+        .pop()
+        .map(|rhs| rhs.trim())
+        // break each rhs predicate up by whitespace
+        .map(|str| str.split_whitespace())
+        .unwrap();
+    let lhs = split_line.pop().map(|lhs| lhs.trim()).unwrap();
+
+    // retrieve the LHS symbol.
+    let lhs_symbol = symbol_value_from_str(lhs).ok_or_else(|| {
+        GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data("doesn't start with symbol".to_string())
+    })?;
+
+    let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
+    let rule_ref = SymbolRef::from(rule_id);
+    let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
+
+    // add tokens and fill the rule.
+    for elem in rhs {
+        if let Some(symbol) = symbol_value_from_str(elem) {
+            let symbol_id = {
+                let symbol_id = grammar_table.add_symbol_mut(symbol);
+                let symbol_ref = SymbolRef::new(symbol_id);
+
+                SymbolOrTokenRef::Symbol(symbol_ref)
+            };
+            rule.rhs.push(symbol_id);
+        // validate all token values are single length.
+        } else if let Some(token) = token_value_from_str(elem) {
+            let token_id = {
+                let token_id = grammar_table.add_token_mut(token);
+                let token_ref = TokenRef::from(token_id);
+
+                SymbolOrTokenRef::Token(token_ref)
+            };
+            rule.rhs.push(token_id);
+        } else {
+            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+                .with_data(format!("invalid rhs value ({})", elem)));
+        }
+    }
+
+    if grammar_table.rules.contains(&rule) {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
+            .with_data(format!("{} ", &rule)));
+    } else if !rule.is_valid() {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data(format!("{} ", &rule)));
+    } else {
+        grammar_table.add_rule_mut(rule);
+        Ok(())
+    }
 }
 
 pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
@@ -503,78 +571,13 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         .filter(|(_, line)| !line.chars().all(|c| c.is_whitespace()));
 
     for (lineno, line) in lines_containing_rules {
-        let trimmed_line = line.trim();
-
-        // validate the start of the line is a symbol
-        if !trimmed_line.starts_with('<') {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: doesn't start with symbol", lineno)));
-        }
-
-        // split the line at the assignment delimiter
-        let mut split_line = trimmed_line.split("::=").collect::<Vec<_>>();
-        if split_line.len() != 2 {
-            return Err(
-                GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule).with_data(format!(
-                    "lineno {}: does not contain right-hand side",
-                    lineno
-                )),
-            );
-        }
-
-        // safe to assume this will have a value from above checks.
-        let rhs = split_line
-            .pop()
-            .map(|rhs| rhs.trim())
-            // break each rhs predicate up by whitespace
-            .map(|str| str.split_whitespace())
-            .unwrap();
-        let lhs = split_line.pop().map(|lhs| lhs.trim()).unwrap();
-
-        // retrieve the LHS symbol.
-        let lhs_symbol = symbol_value_from_str(lhs).ok_or_else(|| {
-            GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: doesn't start with symbol", lineno))
-        })?;
-
-        let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
-        let rule_ref = SymbolRef::from(rule_id);
-        let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
-
-        // add tokens and fill the rule.
-        for elem in rhs {
-            if let Some(symbol) = symbol_value_from_str(elem) {
-                let symbol_id = {
-                    let symbol_id = grammar_table.add_symbol_mut(symbol);
-                    let symbol_ref = SymbolRef::new(symbol_id);
-
-                    SymbolOrTokenRef::Symbol(symbol_ref)
-                };
-                rule.rhs.push(symbol_id);
-            // validate all token values are single length.
-            } else if let Some(token) = token_value_from_str(elem) {
-                let token_id = {
-                    let token_id = grammar_table.add_token_mut(token);
-                    let token_ref = TokenRef::from(token_id);
-
-                    SymbolOrTokenRef::Token(token_ref)
-                };
-                rule.rhs.push(token_id);
-            } else {
-                return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                    .with_data(format!("lineno {}: invalid rhs value ({})", lineno, elem)));
+        define_rule_mut(&mut grammar_table, line).map_err(|e| match e.data {
+            Some(data) => {
+                let line_annotated_data = format!("lineno {}: {}", lineno, data);
+                GrammarLoadError::new(e.kind).with_data(line_annotated_data)
             }
-        }
-
-        if grammar_table.rules.contains(&rule) {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
-                .with_data(format!("lineno {}: {} ", lineno, &rule)));
-        } else if !rule.is_valid() {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: {} ", lineno, &rule)));
-        } else {
-            grammar_table.add_rule_mut(rule)
-        }
+            None => e,
+        })?;
     }
 
     // add the first production to the goal.
