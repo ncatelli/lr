@@ -6,11 +6,19 @@ use syn::{
     Data, DataEnum, DeriveInput, ExprClosure, Fields, Ident, LitStr, Token,
 };
 
-struct Rule(String);
+struct Rule {
+    rule: LitStr,
+}
 
 impl Rule {
-    fn new(pattern: String) -> Self {
-        Self(pattern)
+    fn new(rule: LitStr) -> Self {
+        Self { rule }
+    }
+}
+
+impl Spanned for Rule {
+    fn span(&self) -> Span {
+        self.rule.span()
     }
 }
 
@@ -25,9 +33,51 @@ enum AttributeKind {
     Rule,
 }
 
+enum AttributeMetadataVariant {
+    Goal(GoalAttributeMetadata),
+    Rule(RuleAttributeMetadata),
+}
+
+impl From<GoalAttributeMetadata> for AttributeMetadataVariant {
+    fn from(value: GoalAttributeMetadata) -> Self {
+        Self::Goal(value)
+    }
+}
+
+impl From<RuleAttributeMetadata> for AttributeMetadataVariant {
+    fn from(value: RuleAttributeMetadata) -> Self {
+        Self::Rule(value)
+    }
+}
+
+struct GoalAttributeMetadata;
+
+impl Parse for GoalAttributeMetadata {
+    fn parse(_input: ParseStream) -> syn::Result<Self> {
+        Ok(GoalAttributeMetadata)
+    }
+}
+
 struct RuleAttributeMetadata {
     rule: Rule,
     reducer: ReducerAction,
+}
+
+impl Spanned for RuleAttributeMetadata {
+    fn span(&self) -> Span {
+        let rule_span = self.rule.span();
+        let action_span = match &self.reducer {
+            ReducerAction::Closure(closure) => Some(closure.span()),
+            ReducerAction::Fn(fn_ident) => Some(fn_ident.span()),
+            ReducerAction::None => None,
+        };
+
+        // Attempt to join the two spans or return the rule_span if not
+        // possible
+        action_span
+            .and_then(|action_span| rule_span.join(action_span))
+            .unwrap_or_else(|| rule_span)
+    }
 }
 
 impl RuleAttributeMetadata {
@@ -40,15 +90,9 @@ impl Parse for RuleAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         let spanned_rule = if lookahead.peek(LitStr) {
-            let pat: LitStr = input.parse()?;
-            let span = pat.span();
+            let rule: LitStr = input.parse()?;
 
-            /*
-            regex_compiler::parser::parse(format!("({})", &pat.value()))
-                .map(|regex| SpannedRegex::new(span, regex))
-                .map_err(|e| syn::Error::new_spanned(pat, e))?
-                */
-            todo!()
+            Rule::new(rule)
         } else {
             return Err(lookahead.error());
         };
@@ -61,6 +105,9 @@ impl Parse for RuleAttributeMetadata {
             })
         } else {
             let _separator: Token![,] = input.parse()?;
+
+            // attempt to parse out a closure, and if this falls through,
+            // attempt an Ident representing a function.
             let expr_closure_action = input.parse::<ExprClosure>();
             match expr_closure_action {
                 Ok(action) => syn::Result::Ok(RuleAttributeMetadata {
@@ -81,14 +128,15 @@ impl Parse for RuleAttributeMetadata {
         }
     }
 }
+
 /// Stores all supported lexer attributes for a given Token variant.
 struct NonTerminalVariantMetadata {
     ident: Ident,
-    attr_metadata: RuleAttributeMetadata,
+    attr_metadata: AttributeMetadataVariant,
 }
 
 impl NonTerminalVariantMetadata {
-    fn new(ident: Ident, attr_metadata: RuleAttributeMetadata) -> Self {
+    fn new(ident: Ident, attr_metadata: AttributeMetadataVariant) -> Self {
         Self {
             ident,
             attr_metadata,
@@ -150,27 +198,31 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
                         None
                     }
                 })
-                .map(|(kind, attr)| match kind {
-                    AttributeKind::Goal => todo!(),
-                    AttributeKind::Rule => {
-                        attr.parse_args_with(RuleAttributeMetadata::parse)
-                            .and_then(|ram| {
-                                match variant_fields.clone() {
-                                    // an unamed struct with one field
-                                    Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
-                                    // an empty filed
-                                    Fields::Unit => Ok(ram),
-                                    l => Err(syn::Error::new(
-                                        l.span(),
-                                        format!(
-                                            "variant({}) expects exactly 1 unnamed field, got {}",
-                                            &variant_ident,
-                                            l.len()
-                                        ),
-                                    )),
-                                }
-                            })
+                .map(|(kind, attr)| {
+                    match kind {
+                        AttributeKind::Goal => attr
+                            .parse_args_with(GoalAttributeMetadata::parse)
+                            .map(AttributeMetadataVariant::from),
+                        AttributeKind::Rule => attr
+                            .parse_args_with(RuleAttributeMetadata::parse)
+                            .map(AttributeMetadataVariant::from),
                     }
+                    .and_then(|ram| {
+                        match variant_fields.clone() {
+                            // an unamed struct with one field
+                            Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
+                            // an empty filed
+                            Fields::Unit => Ok(ram),
+                            l => Err(syn::Error::new(
+                                l.span(),
+                                format!(
+                                    "variant({}) expects exactly 1 unnamed field, got {}",
+                                    &variant_ident,
+                                    l.len()
+                                ),
+                            )),
+                        }
+                    })
                 });
 
             let mut variant_match_attr = attr_kind.collect::<Result<Vec<_>, _>>()?;
