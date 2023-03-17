@@ -193,38 +193,42 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
                 }
             });
 
-            let attr_kinds = grammar_rule_attributes.map(|(kind, attr)| {
-                match kind {
-                    GrammarItemAttributeKind::Goal => attr
-                        .parse_args_with(GoalAttributeMetadata::parse)
-                        .map(GrammarItemAttributeMetadata::from),
-                    GrammarItemAttributeKind::Rule => attr
-                        .parse_args_with(RuleAttributeMetadata::parse)
-                        .map(GrammarItemAttributeMetadata::from),
-                }
-                .and_then(|ram| {
-                    match variant_fields.clone() {
-                        // an unamed struct with one field
-                        Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
-                        // an empty filed
-                        Fields::Unit => Ok(ram),
-                        l => Err(syn::Error::new(
-                            l.span(),
-                            format!(
-                                "variant({}) expects exactly 1 unnamed field, got {}",
-                                &variant_ident,
-                                l.len()
-                            ),
-                        )),
+            let valid_attrs_for_variant = grammar_rule_attributes
+                .map(|(kind, attr)| {
+                    match kind {
+                        GrammarItemAttributeKind::Goal => attr
+                            .parse_args_with(GoalAttributeMetadata::parse)
+                            .map(GrammarItemAttributeMetadata::from),
+                        GrammarItemAttributeKind::Rule => attr
+                            .parse_args_with(RuleAttributeMetadata::parse)
+                            .map(GrammarItemAttributeMetadata::from),
                     }
+                    .and_then(|ram| {
+                        match variant_fields.clone() {
+                            // an unamed struct with one field
+                            Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
+                            // an empty filed
+                            Fields::Unit => Ok(ram),
+                            l => Err(syn::Error::new(
+                                l.span(),
+                                format!(
+                                    "variant({}) expects exactly 1 unnamed field, got {}",
+                                    &variant_ident,
+                                    l.len()
+                                ),
+                            )),
+                        }
+                    })
                 })
-            });
+                // terminate if any attributes are invalid
+                .collect::<Result<Vec<_>, _>>()?;
 
             // Collect all rules for a production variant.
-            let variant_attr = attr_kinds.collect::<Result<Vec<_>, _>>()?;
-            if variant_attr.len() >= 1 {
-                let attr = variant_attr;
-                Ok(ProductionMetadata::new(variant_ident, attr))
+            if valid_attrs_for_variant.len() >= 1 {
+                Ok(ProductionMetadata::new(
+                    variant_ident,
+                    valid_attrs_for_variant,
+                ))
             } else {
                 Err(syn::Error::new(
                     variant_span,
