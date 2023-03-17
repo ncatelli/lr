@@ -239,7 +239,7 @@ impl<'a> std::fmt::Display for Token<'a> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable {
+pub struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     rules: Vec<RuleRef>,
@@ -338,9 +338,14 @@ impl std::fmt::Display for GrammarTable {
     }
 }
 
-/// Defines a [GrammarTable] builder that initializes a grammar table with a
-/// common set of predefined rules and symbols.
-pub(crate) struct DefaultInitializedGrammarTableBuilder;
+/// Provides methods for initializing a [GrammarTable] with expected terms.
+pub trait GrammarInitializer {
+    fn initialize_table() -> GrammarTable;
+}
+
+/// Defines a [GrammarTable] builder that includes a Goal symbol, Goal rule
+/// and common tokens.
+pub struct DefaultInitializedGrammarTableBuilder;
 
 impl DefaultInitializedGrammarTableBuilder {
     const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
@@ -349,8 +354,10 @@ impl DefaultInitializedGrammarTableBuilder {
         BuiltinTokens::Eof,
         BuiltinTokens::EndL,
     ];
+}
 
-    pub(crate) fn initialize_grammar_table() -> GrammarTable {
+impl GrammarInitializer for DefaultInitializedGrammarTableBuilder {
+    fn initialize_table() -> GrammarTable {
         let mut grammar_table = GrammarTable::default();
 
         // initial table
@@ -479,7 +486,7 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub(crate) fn define_rule_mut<S: AsRef<str>>(
+pub fn define_rule_mut<S: AsRef<str>>(
     grammar_table: &mut GrammarTable,
     line: S,
 ) -> Result<(), GrammarLoadError> {
@@ -555,7 +562,7 @@ pub(crate) fn define_rule_mut<S: AsRef<str>>(
 }
 
 pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
-    let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_grammar_table();
+    let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
 
     // breakup input into enumerated lines.
     let lines = input

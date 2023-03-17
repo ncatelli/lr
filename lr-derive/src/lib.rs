@@ -6,19 +6,21 @@ use syn::{
     Data, DataEnum, DeriveInput, ExprClosure, Fields, Ident, LitStr, Token,
 };
 
-struct Rule {
-    rule: LitStr,
-}
+struct Rule(LitStr);
 
 impl Rule {
     fn new(rule: LitStr) -> Self {
-        Self { rule }
+        Self(rule)
+    }
+
+    fn value(&self) -> String {
+        self.0.value()
     }
 }
 
 impl Spanned for Rule {
     fn span(&self) -> Span {
-        self.rule.span()
+        self.0.span()
     }
 }
 
@@ -129,13 +131,14 @@ impl Parse for RuleAttributeMetadata {
     }
 }
 
-/// Stores all supported lexer attributes for a given Token variant.
-struct ProductionMetadata {
+/// Represents each variant in the grammar enum with it's associated productions.
+struct ProductionAnnotatedEnumVariant {
     non_terminal: Ident,
+    /// The productions as sourced from an attribute.
     attr_metadata: Vec<GrammarItemAttributeMetadata>,
 }
 
-impl ProductionMetadata {
+impl ProductionAnnotatedEnumVariant {
     fn new(ident: Ident, attr_metadata: Vec<GrammarItemAttributeMetadata>) -> Self {
         Self {
             non_terminal: ident,
@@ -145,15 +148,19 @@ impl ProductionMetadata {
 }
 
 /// Represents each variant of the non-terminal enum representing the grammar.
-struct GrammarVariants {
+struct GrammarAnnotatedEnum {
     span: Span,
     /// Represents the Identifier for the Token enum.
     enum_ident: Ident,
-    variant_metadata: Vec<ProductionMetadata>,
+    variant_metadata: Vec<ProductionAnnotatedEnumVariant>,
 }
 
-impl GrammarVariants {
-    fn new(span: Span, enum_ident: Ident, variant_metadata: Vec<ProductionMetadata>) -> Self {
+impl GrammarAnnotatedEnum {
+    fn new(
+        span: Span,
+        enum_ident: Ident,
+        variant_metadata: Vec<ProductionAnnotatedEnumVariant>,
+    ) -> Self {
         Self {
             span,
             enum_ident,
@@ -162,7 +169,7 @@ impl GrammarVariants {
     }
 }
 
-fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
+fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
     let input_span = input.span();
     let enum_variant_ident = input.ident;
     let enum_variants = match input.data {
@@ -203,12 +210,14 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
                             .parse_args_with(RuleAttributeMetadata::parse)
                             .map(GrammarItemAttributeMetadata::from),
                     }
-                    .and_then(|ram| {
+                    // check that either field has exactly zero or one
+                    //attribute
+                    .and_then(|giak| {
                         match variant_fields.clone() {
                             // an unamed struct with one field
-                            Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
+                            Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(giak),
                             // an empty filed
-                            Fields::Unit => Ok(ram),
+                            Fields::Unit => Ok(giak),
                             l => Err(syn::Error::new(
                                 l.span(),
                                 format!(
@@ -225,7 +234,7 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
 
             // Collect all rules for a production variant.
             if valid_attrs_for_variant.len() >= 1 {
-                Ok(ProductionMetadata::new(
+                Ok(ProductionAnnotatedEnumVariant::new(
                     variant_ident,
                     valid_attrs_for_variant,
                 ))
@@ -238,8 +247,34 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
         })
         .collect::<Result<_, _>>()
         .map(|enriched_enum_variants| {
-            GrammarVariants::new(input_span, enum_variant_ident, enriched_enum_variants)
+            GrammarAnnotatedEnum::new(input_span, enum_variant_ident, enriched_enum_variants)
         })
+}
+
+fn generate_grammer_from_annotated_enum(
+    grammar_variants: &GrammarAnnotatedEnum,
+) -> Result<lr_core::grammar::GrammarTable, String> {
+    use lr_core::grammar::{
+        define_rule_mut, DefaultInitializedGrammarTableBuilder, GrammarInitializer,
+    };
+
+    let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
+    for production in &grammar_variants.variant_metadata {
+        let non_terminal = production.non_terminal.to_string();
+
+        for rule in &production.attr_metadata {
+            match rule {
+                GrammarItemAttributeMetadata::Goal(_) => unimplemented!(),
+                GrammarItemAttributeMetadata::Rule(ram) => {
+                    let rhs = ram.rule.value();
+                    let line = format!("<{}> ::= {}", non_terminal, rhs);
+                    define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+
+    Ok(grammar_table)
 }
 
 /// The dispatcher method for tokens annotated with the Lr1 derive.
@@ -247,8 +282,10 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
 pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    parse(input)
-        .map(|_| TokenStream::new())
+    let annotated_enum = parse(input).unwrap();
+    let _grammar_table = generate_grammer_from_annotated_enum(&annotated_enum).unwrap();
+
+    Ok(TokenStream::new())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

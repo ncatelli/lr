@@ -1,6 +1,6 @@
 use grammar::GrammarLoadError;
 
-mod grammar;
+pub mod grammar;
 mod lr;
 
 /// Represents the kind of table that can be generated
