@@ -28,23 +28,23 @@ enum ReducerAction {
     None,
 }
 
-enum AttributeKind {
+enum GrammarItemAttributeKind {
     Goal,
     Rule,
 }
 
-enum AttributeMetadataVariant {
+enum GrammarItemAttributeMetadata {
     Goal(GoalAttributeMetadata),
     Rule(RuleAttributeMetadata),
 }
 
-impl From<GoalAttributeMetadata> for AttributeMetadataVariant {
+impl From<GoalAttributeMetadata> for GrammarItemAttributeMetadata {
     fn from(value: GoalAttributeMetadata) -> Self {
         Self::Goal(value)
     }
 }
 
-impl From<RuleAttributeMetadata> for AttributeMetadataVariant {
+impl From<RuleAttributeMetadata> for GrammarItemAttributeMetadata {
     fn from(value: RuleAttributeMetadata) -> Self {
         Self::Rule(value)
     }
@@ -130,33 +130,30 @@ impl Parse for RuleAttributeMetadata {
 }
 
 /// Stores all supported lexer attributes for a given Token variant.
-struct NonTerminalVariantMetadata {
-    ident: Ident,
-    attr_metadata: AttributeMetadataVariant,
+struct ProductionMetadata {
+    non_terminal: Ident,
+    attr_metadata: Vec<GrammarItemAttributeMetadata>,
 }
 
-impl NonTerminalVariantMetadata {
-    fn new(ident: Ident, attr_metadata: AttributeMetadataVariant) -> Self {
+impl ProductionMetadata {
+    fn new(ident: Ident, attr_metadata: Vec<GrammarItemAttributeMetadata>) -> Self {
         Self {
-            ident,
+            non_terminal: ident,
             attr_metadata,
         }
     }
 }
 
+/// Represents each variant of the non-terminal enum representing the grammar.
 struct GrammarVariants {
     span: Span,
     /// Represents the Identifier for the Token enum.
     enum_ident: Ident,
-    variant_metadata: Vec<NonTerminalVariantMetadata>,
+    variant_metadata: Vec<ProductionMetadata>,
 }
 
 impl GrammarVariants {
-    fn new(
-        span: Span,
-        enum_ident: Ident,
-        variant_metadata: Vec<NonTerminalVariantMetadata>,
-    ) -> Self {
+    fn new(span: Span, enum_ident: Ident, variant_metadata: Vec<ProductionMetadata>) -> Self {
         Self {
             span,
             enum_ident,
@@ -167,7 +164,7 @@ impl GrammarVariants {
 
 fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
     let input_span = input.span();
-    let tok_enum_name = input.ident;
+    let enum_variant_ident = input.ident;
     let enum_variants = match input.data {
         Data::Enum(DataEnum { variants, .. }) => variants,
         _ => {
@@ -186,59 +183,58 @@ fn parse(input: DeriveInput) -> Result<GrammarVariants, syn::Error> {
             let variant_ident = variant.ident;
             let variant_fields = variant.fields;
 
-            let attr_kind = variant
-                .attrs
-                .iter()
-                .filter_map(|attr| {
-                    if attr.path.is_ident("rule") {
-                        Some((AttributeKind::Rule, attr))
-                    } else if attr.path.is_ident("goal") {
-                        Some((AttributeKind::Goal, attr))
-                    } else {
-                        None
+            let grammar_rule_attributes = variant.attrs.iter().filter_map(|attr| {
+                if attr.path.is_ident("rule") {
+                    Some((GrammarItemAttributeKind::Rule, attr))
+                } else if attr.path.is_ident("goal") {
+                    Some((GrammarItemAttributeKind::Goal, attr))
+                } else {
+                    None
+                }
+            });
+
+            let attr_kinds = grammar_rule_attributes.map(|(kind, attr)| {
+                match kind {
+                    GrammarItemAttributeKind::Goal => attr
+                        .parse_args_with(GoalAttributeMetadata::parse)
+                        .map(GrammarItemAttributeMetadata::from),
+                    GrammarItemAttributeKind::Rule => attr
+                        .parse_args_with(RuleAttributeMetadata::parse)
+                        .map(GrammarItemAttributeMetadata::from),
+                }
+                .and_then(|ram| {
+                    match variant_fields.clone() {
+                        // an unamed struct with one field
+                        Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
+                        // an empty filed
+                        Fields::Unit => Ok(ram),
+                        l => Err(syn::Error::new(
+                            l.span(),
+                            format!(
+                                "variant({}) expects exactly 1 unnamed field, got {}",
+                                &variant_ident,
+                                l.len()
+                            ),
+                        )),
                     }
                 })
-                .map(|(kind, attr)| {
-                    match kind {
-                        AttributeKind::Goal => attr
-                            .parse_args_with(GoalAttributeMetadata::parse)
-                            .map(AttributeMetadataVariant::from),
-                        AttributeKind::Rule => attr
-                            .parse_args_with(RuleAttributeMetadata::parse)
-                            .map(AttributeMetadataVariant::from),
-                    }
-                    .and_then(|ram| {
-                        match variant_fields.clone() {
-                            // an unamed struct with one field
-                            Fields::Unnamed(f) if f.unnamed.len() == 1 => Ok(ram),
-                            // an empty filed
-                            Fields::Unit => Ok(ram),
-                            l => Err(syn::Error::new(
-                                l.span(),
-                                format!(
-                                    "variant({}) expects exactly 1 unnamed field, got {}",
-                                    &variant_ident,
-                                    l.len()
-                                ),
-                            )),
-                        }
-                    })
-                });
+            });
 
-            let mut variant_match_attr = attr_kind.collect::<Result<Vec<_>, _>>()?;
-            if variant_match_attr.len() == 1 {
-                let attr = variant_match_attr.pop().unwrap();
-                Ok(NonTerminalVariantMetadata::new(variant_ident, attr))
+            // Collect all rules for a production variant.
+            let variant_attr = attr_kinds.collect::<Result<Vec<_>, _>>()?;
+            if variant_attr.len() >= 1 {
+                let attr = variant_attr;
+                Ok(ProductionMetadata::new(variant_ident, attr))
             } else {
                 Err(syn::Error::new(
                     variant_span,
-                    "expect exactly one match attribute specified",
+                    "expect atleast one attribute is specified",
                 ))
             }
         })
         .collect::<Result<_, _>>()
-        .map(|enriched_token_variants| {
-            GrammarVariants::new(input_span, tok_enum_name, enriched_token_variants)
+        .map(|enriched_enum_variants| {
+            GrammarVariants::new(input_span, enum_variant_ident, enriched_enum_variants)
         })
 }
 
