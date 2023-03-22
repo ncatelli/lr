@@ -8,6 +8,8 @@ workspace = ".."
 proc-macro = true
 
 [dependencies]
+regex-runtime = { git = "https://github.com/ncatelli/regex", branch = "main" }
+relex-derive = { git = "https://github.com/ncatelli/relex", branch = "main" }
 lr-core = { path = "../lr-core" }
 syn = { version = "1.0", features = ["derive", "parsing", "full"] }
 quote = "1.0"

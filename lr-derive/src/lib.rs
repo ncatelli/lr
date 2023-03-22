@@ -82,12 +82,6 @@ impl Spanned for RuleAttributeMetadata {
     }
 }
 
-impl RuleAttributeMetadata {
-    fn new(rule: Rule, reducer: ReducerAction) -> Self {
-        Self { rule, reducer }
-    }
-}
-
 impl Parse for RuleAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
@@ -138,35 +132,12 @@ struct ProductionAnnotatedEnumVariant {
     attr_metadata: Vec<GrammarItemAttributeMetadata>,
 }
 
-impl ProductionAnnotatedEnumVariant {
-    fn new(ident: Ident, attr_metadata: Vec<GrammarItemAttributeMetadata>) -> Self {
-        Self {
-            non_terminal: ident,
-            attr_metadata,
-        }
-    }
-}
-
 /// Represents each variant of the non-terminal enum representing the grammar.
 struct GrammarAnnotatedEnum {
     span: Span,
     /// Represents the Identifier for the Token enum.
     enum_ident: Ident,
     variant_metadata: Vec<ProductionAnnotatedEnumVariant>,
-}
-
-impl GrammarAnnotatedEnum {
-    fn new(
-        span: Span,
-        enum_ident: Ident,
-        variant_metadata: Vec<ProductionAnnotatedEnumVariant>,
-    ) -> Self {
-        Self {
-            span,
-            enum_ident,
-            variant_metadata,
-        }
-    }
 }
 
 fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
@@ -234,10 +205,10 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
 
             // Collect all rules for a production variant.
             if valid_attrs_for_variant.len() >= 1 {
-                Ok(ProductionAnnotatedEnumVariant::new(
-                    variant_ident,
-                    valid_attrs_for_variant,
-                ))
+                Ok(ProductionAnnotatedEnumVariant {
+                    non_terminal: variant_ident,
+                    attr_metadata: valid_attrs_for_variant,
+                })
             } else {
                 Err(syn::Error::new(
                     variant_span,
@@ -246,12 +217,14 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
             }
         })
         .collect::<Result<_, _>>()
-        .map(|enriched_enum_variants| {
-            GrammarAnnotatedEnum::new(input_span, enum_variant_ident, enriched_enum_variants)
+        .map(|enriched_enum_variants| GrammarAnnotatedEnum {
+            span: input_span,
+            enum_ident: enum_variant_ident,
+            variant_metadata: enriched_enum_variants,
         })
 }
 
-fn generate_grammer_from_annotated_enum(
+fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<lr_core::grammar::GrammarTable, String> {
     use lr_core::grammar::{
@@ -283,7 +256,7 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let annotated_enum = parse(input).unwrap();
-    let _grammar_table = generate_grammer_from_annotated_enum(&annotated_enum).unwrap();
+    let _grammar_table = generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
 
     Ok(TokenStream::new())
         .unwrap_or_else(syn::Error::into_compile_error)

@@ -624,14 +624,8 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 
 fn token_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
-    let value_len = trimmed_value.len();
-    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
 
-    if value_len == 1 || is_builtin {
-        Some(trimmed_value)
-    } else {
-        None
-    }
+    Some(trimmed_value)
 }
 
 #[cfg(test)]
@@ -661,21 +655,6 @@ mod tests {
         // 3 builtins plus `(` and `)`
         assert_eq!(5, grammar_table.tokens.len());
         assert_eq!(7, grammar_table.rules.len());
-    }
-
-    #[test]
-    fn should_error_on_invalid_rule() {
-        let res = load_grammar(
-            "
-<expr> ::= ( <expr> )
-<expr> ::=  abcd
-        ",
-        );
-
-        assert_eq!(
-            Err(GrammarLoadErrorKind::InvalidRule),
-            res.map_err(|e| e.kind)
-        );
     }
 
     #[test]
