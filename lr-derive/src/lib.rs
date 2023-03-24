@@ -52,6 +52,38 @@ impl From<RuleAttributeMetadata> for GrammarItemAttributeMetadata {
     }
 }
 
+fn parse_attribute_metadata(input: ParseStream<'_>) -> syn::Result<(Rule, ReducerAction)> {
+    let lookahead = input.lookahead1();
+    let spanned_rule = if lookahead.peek(LitStr) {
+        let rule: LitStr = input.parse()?;
+
+        Rule::new(rule)
+    } else {
+        return Err(lookahead.error());
+    };
+
+    // check whether a handler closure has been provided.
+    if input.is_empty() {
+        syn::Result::Ok((spanned_rule, ReducerAction::None))
+    } else {
+        let _separator: Token![,] = input.parse()?;
+
+        // attempt to parse out a closure, and if this falls through,
+        // attempt an Ident representing a function.
+        let expr_closure_action = input.parse::<ExprClosure>();
+        match expr_closure_action {
+            Ok(action) => syn::Result::Ok((spanned_rule, ReducerAction::Closure(action))),
+            Err(_) => {
+                let action = input.parse::<Ident>().map_err(|e| {
+                    let span = e.span();
+                    syn::Error::new(span, "expected either a closure or a function identifier")
+                })?;
+                syn::Result::Ok((spanned_rule, ReducerAction::Fn(action)))
+            }
+        }
+    }
+}
+
 struct GoalAttributeMetadata {
     rule: Rule,
     reducer: ReducerAction,
@@ -76,44 +108,8 @@ impl Spanned for GoalAttributeMetadata {
 
 impl Parse for GoalAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        let spanned_rule = if lookahead.peek(LitStr) {
-            let rule: LitStr = input.parse()?;
-
-            Rule::new(rule)
-        } else {
-            return Err(lookahead.error());
-        };
-
-        // check whether a handler closure has been provided.
-        if input.is_empty() {
-            syn::Result::Ok(GoalAttributeMetadata {
-                rule: spanned_rule,
-                reducer: ReducerAction::None,
-            })
-        } else {
-            let _separator: Token![,] = input.parse()?;
-
-            // attempt to parse out a closure, and if this falls through,
-            // attempt an Ident representing a function.
-            let expr_closure_action = input.parse::<ExprClosure>();
-            match expr_closure_action {
-                Ok(action) => syn::Result::Ok(GoalAttributeMetadata {
-                    rule: spanned_rule,
-                    reducer: ReducerAction::Closure(action),
-                }),
-                Err(_) => {
-                    let action = input.parse::<Ident>().map_err(|e| {
-                        let span = e.span();
-                        syn::Error::new(span, "expected either a closure or a function identifier")
-                    })?;
-                    syn::Result::Ok(GoalAttributeMetadata {
-                        rule: spanned_rule,
-                        reducer: ReducerAction::Fn(action),
-                    })
-                }
-            }
-        }
+        let (rule, reducer) = parse_attribute_metadata(input)?;
+        Ok(GoalAttributeMetadata { rule, reducer })
     }
 }
 
@@ -141,44 +137,8 @@ impl Spanned for RuleAttributeMetadata {
 
 impl Parse for RuleAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        let spanned_rule = if lookahead.peek(LitStr) {
-            let rule: LitStr = input.parse()?;
-
-            Rule::new(rule)
-        } else {
-            return Err(lookahead.error());
-        };
-
-        // check whether a handler closure has been provided.
-        if input.is_empty() {
-            syn::Result::Ok(RuleAttributeMetadata {
-                rule: spanned_rule,
-                reducer: ReducerAction::None,
-            })
-        } else {
-            let _separator: Token![,] = input.parse()?;
-
-            // attempt to parse out a closure, and if this falls through,
-            // attempt an Ident representing a function.
-            let expr_closure_action = input.parse::<ExprClosure>();
-            match expr_closure_action {
-                Ok(action) => syn::Result::Ok(RuleAttributeMetadata {
-                    rule: spanned_rule,
-                    reducer: ReducerAction::Closure(action),
-                }),
-                Err(_) => {
-                    let action = input.parse::<Ident>().map_err(|e| {
-                        let span = e.span();
-                        syn::Error::new(span, "expected either a closure or a function identifier")
-                    })?;
-                    syn::Result::Ok(RuleAttributeMetadata {
-                        rule: spanned_rule,
-                        reducer: ReducerAction::Fn(action),
-                    })
-                }
-            }
-        }
+        let (rule, reducer) = parse_attribute_metadata(input)?;
+        Ok(RuleAttributeMetadata { rule, reducer })
     }
 }
 
