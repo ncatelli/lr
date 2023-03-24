@@ -498,13 +498,6 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub fn define_root_production_mut<S: AsRef<str>>(
-    grammar_table: &mut GrammarTable,
-    line: S,
-) -> Result<(), GrammarLoadError> {
-    todo!()
-}
-
 pub fn define_rule_mut<S: AsRef<str>>(
     grammar_table: &mut GrammarTable,
     line: S,
