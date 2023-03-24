@@ -52,11 +52,68 @@ impl From<RuleAttributeMetadata> for GrammarItemAttributeMetadata {
     }
 }
 
-struct GoalAttributeMetadata;
+struct GoalAttributeMetadata {
+    rule: Rule,
+    reducer: ReducerAction,
+}
+
+impl Spanned for GoalAttributeMetadata {
+    fn span(&self) -> Span {
+        let rule_span = self.rule.span();
+        let action_span = match &self.reducer {
+            ReducerAction::Closure(closure) => Some(closure.span()),
+            ReducerAction::Fn(fn_ident) => Some(fn_ident.span()),
+            ReducerAction::None => None,
+        };
+
+        // Attempt to join the two spans or return the rule_span if not
+        // possible
+        action_span
+            .and_then(|action_span| rule_span.join(action_span))
+            .unwrap_or_else(|| rule_span)
+    }
+}
 
 impl Parse for GoalAttributeMetadata {
-    fn parse(_input: ParseStream) -> syn::Result<Self> {
-        Ok(GoalAttributeMetadata)
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        let spanned_rule = if lookahead.peek(LitStr) {
+            let rule: LitStr = input.parse()?;
+
+            Rule::new(rule)
+        } else {
+            return Err(lookahead.error());
+        };
+
+        // check whether a handler closure has been provided.
+        if input.is_empty() {
+            syn::Result::Ok(GoalAttributeMetadata {
+                rule: spanned_rule,
+                reducer: ReducerAction::None,
+            })
+        } else {
+            let _separator: Token![,] = input.parse()?;
+
+            // attempt to parse out a closure, and if this falls through,
+            // attempt an Ident representing a function.
+            let expr_closure_action = input.parse::<ExprClosure>();
+            match expr_closure_action {
+                Ok(action) => syn::Result::Ok(GoalAttributeMetadata {
+                    rule: spanned_rule,
+                    reducer: ReducerAction::Closure(action),
+                }),
+                Err(_) => {
+                    let action = input.parse::<Ident>().map_err(|e| {
+                        let span = e.span();
+                        syn::Error::new(span, "expected either a closure or a function identifier")
+                    })?;
+                    syn::Result::Ok(GoalAttributeMetadata {
+                        rule: spanned_rule,
+                        reducer: ReducerAction::Fn(action),
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -134,8 +191,10 @@ struct ProductionAnnotatedEnumVariant {
 
 /// Represents each variant of the non-terminal enum representing the grammar.
 struct GrammarAnnotatedEnum {
+    #[allow(unused)]
     span: Span,
     /// Represents the Identifier for the Token enum.
+    #[allow(unused)]
     enum_ident: Ident,
     variant_metadata: Vec<ProductionAnnotatedEnumVariant>,
 }
@@ -232,19 +291,40 @@ fn generate_grammer_table_from_annotated_enum(
     };
 
     let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
-    for production in &grammar_variants.variant_metadata {
-        let non_terminal = production.non_terminal.to_string();
+    let mut goal = None;
+    let mut rules = vec![];
 
-        for rule in &production.attr_metadata {
+    for production in &grammar_variants.variant_metadata {
+        let attr_metadata = &production.attr_metadata;
+        for rule in attr_metadata {
             match rule {
-                GrammarItemAttributeMetadata::Goal(_) => unimplemented!(),
+                // error if multiple goals are defined.
+                GrammarItemAttributeMetadata::Goal(_) if goal.is_some() => {
+                    return Err("multiple goals defined".to_string())
+                }
+                GrammarItemAttributeMetadata::Goal(g) => {
+                    goal = Some(g);
+                }
                 GrammarItemAttributeMetadata::Rule(ram) => {
-                    let rhs = ram.rule.value();
-                    let line = format!("<{}> ::= {}", non_terminal, rhs);
-                    define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+                    let non_terminal = production.non_terminal.to_string();
+                    rules.push((non_terminal, ram));
                 }
             }
         }
+    }
+
+    if let Some(gam) = goal {
+        let rhs = gam.rule.value();
+        let line = format!("<*> ::= {}", rhs);
+        define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+    } else {
+        return Err("No goal production defined".to_string());
+    }
+
+    for (non_terminal, ram) in rules {
+        let rhs = ram.rule.value();
+        let line = format!("<{}> ::= {}", non_terminal, rhs);
+        define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
     }
 
     Ok(grammar_table)
@@ -256,7 +336,9 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let annotated_enum = parse(input).unwrap();
-    let _grammar_table = generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
+    let grammar_table = generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
+
+    println!("{}", &grammar_table);
 
     Ok(TokenStream::new())
         .unwrap_or_else(syn::Error::into_compile_error)

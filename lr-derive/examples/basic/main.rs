@@ -13,6 +13,7 @@ pub enum Token {
 
 #[derive(Debug, Lr1)]
 pub enum ParseTree {
+    #[goal(r"<E> <$>")]
     #[rule(r"<T> Token::Minus <E>")]
     #[rule(r"<T>")]
     E,

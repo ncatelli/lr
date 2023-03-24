@@ -343,8 +343,8 @@ pub trait GrammarInitializer {
     fn initialize_table() -> GrammarTable;
 }
 
-/// Defines a [GrammarTable] builder that includes a Goal symbol, Goal rule
-/// and common tokens.
+/// Defines a [GrammarTable] builder that includes a Goal symbol and common
+/// tokens.
 pub struct DefaultInitializedGrammarTableBuilder;
 
 impl DefaultInitializedGrammarTableBuilder {
@@ -360,11 +360,6 @@ impl GrammarInitializer for DefaultInitializedGrammarTableBuilder {
     fn initialize_table() -> GrammarTable {
         let mut grammar_table = GrammarTable::default();
 
-        // initial table
-        let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
-        let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
-        grammar_table.add_rule_mut(root_rule);
-
         for builtin_symbol in Self::DEFAULT_SYMBOLS {
             grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
         }
@@ -374,6 +369,23 @@ impl GrammarInitializer for DefaultInitializedGrammarTableBuilder {
             let symbol_string_repr = builtin_token.as_token().to_string();
             grammar_table.add_token_mut(symbol_string_repr);
         }
+
+        grammar_table
+    }
+}
+
+/// Defines a [GrammarTable] builder that includes a Goal symbol, Goal rule
+/// and common tokens.
+pub struct DefaultInitializedWithGoalProductionGrammarTableBuilder;
+
+impl GrammarInitializer for DefaultInitializedWithGoalProductionGrammarTableBuilder {
+    fn initialize_table() -> GrammarTable {
+        let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
+
+        // initial table
+        let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
+        let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
+        grammar_table.add_rule_mut(root_rule);
 
         grammar_table
     }
@@ -486,6 +498,13 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
+pub fn define_root_production_mut<S: AsRef<str>>(
+    grammar_table: &mut GrammarTable,
+    line: S,
+) -> Result<(), GrammarLoadError> {
+    todo!()
+}
+
 pub fn define_rule_mut<S: AsRef<str>>(
     grammar_table: &mut GrammarTable,
     line: S,
@@ -562,7 +581,8 @@ pub fn define_rule_mut<S: AsRef<str>>(
 }
 
 pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
-    let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
+    let mut grammar_table =
+        DefaultInitializedWithGoalProductionGrammarTableBuilder::initialize_table();
 
     // breakup input into enumerated lines.
     let lines = input
