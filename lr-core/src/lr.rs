@@ -680,7 +680,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
 /// Represents one of 4 valid actions for the action table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Action {
+pub enum Action {
     /// The goal state has been reached and a parse can be accepted.
     Accept,
     /// Shift the input on to the token stream.
@@ -698,7 +698,7 @@ impl Default for Action {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Goto {
+pub enum Goto {
     State(usize),
     DeadState,
 }
