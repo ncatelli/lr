@@ -1,3 +1,4 @@
+use lr_core::{grammar::GrammarTable, lr::LrTable};
 use proc_macro2::{Span, TokenStream};
 use syn::{
     parse::{Parse, ParseStream},
@@ -245,7 +246,7 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
 
 fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
-) -> Result<lr_core::grammar::GrammarTable, String> {
+) -> Result<GrammarTable, String> {
     use lr_core::grammar::{
         define_rule_mut, DefaultInitializedGrammarTableBuilder, GrammarInitializer,
     };
@@ -290,6 +291,32 @@ fn generate_grammer_table_from_annotated_enum(
     Ok(grammar_table)
 }
 
+#[derive(Debug)]
+struct StateTable {
+    grammar_table: GrammarTable,
+    state_table: LrTable,
+}
+
+impl StateTable {
+    fn new(grammar_table: GrammarTable, state_table: LrTable) -> Self {
+        Self {
+            grammar_table,
+            state_table,
+        }
+    }
+}
+
+impl std::fmt::Display for StateTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}\n{}",
+            &self.grammar_table,
+            self.state_table.human_readable_format(&self.grammar_table)
+        )
+    }
+}
+
 /// The dispatcher method for tokens annotated with the Lr1 derive.
 #[proc_macro_derive(Lr1, attributes(goal, rule))]
 pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -300,11 +327,9 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let annotated_enum = parse(input).unwrap();
     let grammar_table = generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
     let lr_table = generate_table_from_grammar(GeneratorKind::Lr1, &grammar_table).unwrap();
-    println!(
-        "{}\n{}",
-        &grammar_table,
-        lr_table.human_readable_format(&grammar_table)
-    );
+    let state_table = StateTable::new(grammar_table, lr_table);
+
+    println!("{}", state_table);
 
     Ok(TokenStream::new())
         .unwrap_or_else(syn::Error::into_compile_error)
