@@ -293,12 +293,18 @@ fn generate_grammer_table_from_annotated_enum(
 /// The dispatcher method for tokens annotated with the Lr1 derive.
 #[proc_macro_derive(Lr1, attributes(goal, rule))]
 pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    use lr_core::{generate_table_from_grammar, GeneratorKind};
+
     let input = parse_macro_input!(input as DeriveInput);
 
     let annotated_enum = parse(input).unwrap();
     let grammar_table = generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
-
-    println!("{}", &grammar_table);
+    let lr_table = generate_table_from_grammar(GeneratorKind::Lr1, &grammar_table).unwrap();
+    println!(
+        "{}\n{}",
+        &grammar_table,
+        lr_table.human_readable_format(&grammar_table)
+    );
 
     Ok(TokenStream::new())
         .unwrap_or_else(syn::Error::into_compile_error)

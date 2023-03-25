@@ -710,7 +710,7 @@ impl Default for Goto {
 }
 
 #[derive(Debug)]
-pub(crate) struct LrTable {
+pub struct LrTable {
     states: usize,
     goto: Vec<Vec<Goto>>,
     action: Vec<Vec<Action>>,
@@ -727,7 +727,7 @@ impl LrTable {
 
     /// Outputs a human-readable representation of the grammar table.
     #[allow(unused)]
-    fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+    pub fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
         const DEAD_STATE_STR: &str = " ";
 
         let left_side_padding = 8;
