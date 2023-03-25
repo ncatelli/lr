@@ -317,6 +317,10 @@ impl std::fmt::Display for StateTable {
     }
 }
 
+fn codegen(_table: &StateTable) -> Result<TokenStream, String> {
+    Ok(TokenStream::new())
+}
+
 /// The dispatcher method for tokens annotated with the Lr1 derive.
 #[proc_macro_derive(Lr1, attributes(goal, rule))]
 pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -331,7 +335,5 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     println!("{}", state_table);
 
-    Ok(TokenStream::new())
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
+    codegen(&state_table).unwrap().into()
 }
