@@ -333,7 +333,5 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let lr_table = generate_table_from_grammar(GeneratorKind::Lr1, &grammar_table).unwrap();
     let state_table = StateTable::new(grammar_table, lr_table);
 
-    println!("{}", state_table);
-
     codegen(&state_table).unwrap().into()
 }
