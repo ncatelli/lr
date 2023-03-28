@@ -39,7 +39,7 @@ impl BuiltinTokens {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrToken<'a> {
+pub enum SymbolOrToken<'a> {
     Symbol(Symbol<'a>),
     Token(Token<'a>),
 }
@@ -173,7 +173,7 @@ impl std::fmt::Display for RuleRef {
 
 /// A wrapper type for symbols borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Symbol<'a>(&'a str);
+pub struct Symbol<'a>(&'a str);
 
 impl<'a> Symbol<'a> {
     pub(crate) fn new(symbol: &'a str) -> Self {
@@ -206,7 +206,7 @@ impl<'a> From<&'a str> for Symbol<'a> {
 
 /// A wrapper type for tokens borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Token<'a>(&'a str);
+pub struct Token<'a>(&'a str);
 
 impl<'a> Token<'a> {
     pub(crate) fn new(token: &'a str) -> Self {
@@ -275,11 +275,11 @@ impl GrammarTable {
         self.rules.push(rule);
     }
 
-    pub(crate) fn symbols(&self) -> SymbolIterator {
+    pub fn symbols(&self) -> SymbolIterator {
         SymbolIterator::new(self)
     }
 
-    pub(crate) fn tokens(&self) -> TokenIterator {
+    pub fn tokens(&self) -> TokenIterator {
         TokenIterator::new(self)
     }
 
@@ -392,7 +392,7 @@ impl GrammarInitializer for DefaultInitializedWithGoalProductionGrammarTableBuil
 }
 
 /// An ordered iterator over all symbols in a grammar table.
-pub(crate) struct SymbolIterator<'a> {
+pub struct SymbolIterator<'a> {
     symbols: Vec<&'a str>,
 }
 
@@ -421,7 +421,7 @@ impl<'a> Iterator for SymbolIterator<'a> {
 }
 
 /// An ordered iterator over all tokens in a grammar table.
-pub(crate) struct TokenIterator<'a> {
+pub struct TokenIterator<'a> {
     tokens: Vec<&'a str>,
 }
 

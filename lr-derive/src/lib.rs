@@ -1,5 +1,9 @@
-use lr_core::{grammar::GrammarTable, lr::LrTable};
+use lr_core::{
+    grammar::{GrammarTable, SymbolOrToken},
+    lr::{Action, Goto, LrTable},
+};
 use proc_macro2::{Span, TokenStream};
+use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
@@ -25,6 +29,7 @@ impl Spanned for Rule {
     }
 }
 
+#[derive(Debug, Clone)]
 enum ReducerAction {
     Closure(ExprClosure),
     Fn(Ident),
@@ -244,9 +249,24 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
         })
 }
 
+#[derive(Debug)]
+struct ReducibleGrammarTable {
+    grammar_table: GrammarTable,
+    reducers: Vec<ReducerAction>,
+}
+
+impl ReducibleGrammarTable {
+    fn new(grammar_table: GrammarTable, reducers: Vec<ReducerAction>) -> Self {
+        Self {
+            grammar_table,
+            reducers,
+        }
+    }
+}
+
 fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
-) -> Result<GrammarTable, String> {
+) -> Result<ReducibleGrammarTable, String> {
     use lr_core::grammar::{
         define_rule_mut, DefaultInitializedGrammarTableBuilder, GrammarInitializer,
     };
@@ -254,6 +274,7 @@ fn generate_grammer_table_from_annotated_enum(
     let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
     let mut goal = None;
     let mut rules = vec![];
+    let mut reducers = vec![];
 
     for production in &grammar_variants.variant_metadata {
         let attr_metadata = &production.attr_metadata;
@@ -277,7 +298,10 @@ fn generate_grammer_table_from_annotated_enum(
     if let Some(gam) = goal {
         let rhs = gam.rule.value();
         let line = format!("<*> ::= {}", rhs);
+        let reducer = gam.reducer.clone();
+
         define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        reducers.push(reducer)
     } else {
         return Err("No goal production defined".to_string());
     }
@@ -285,39 +309,160 @@ fn generate_grammer_table_from_annotated_enum(
     for (non_terminal, ram) in rules {
         let rhs = ram.rule.value();
         let line = format!("<{}> ::= {}", non_terminal, rhs);
+        let reducer = ram.reducer.clone();
+
         define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        reducers.push(reducer)
     }
 
-    Ok(grammar_table)
+    Ok(ReducibleGrammarTable::new(grammar_table, reducers))
 }
 
+/// A wrapper type for iterating over state collection sets.
 #[derive(Debug)]
-struct StateTable {
-    grammar_table: GrammarTable,
-    state_table: LrTable,
+struct StateTable<'a> {
+    reducible_grammar_table: &'a ReducibleGrammarTable,
+    state_table: &'a LrTable,
 }
 
-impl StateTable {
-    fn new(grammar_table: GrammarTable, state_table: LrTable) -> Self {
+impl<'a> StateTable<'a> {
+    fn new(grammar_table: &'a ReducibleGrammarTable, state_table: &'a LrTable) -> Self {
         Self {
-            grammar_table,
+            reducible_grammar_table: grammar_table,
             state_table,
         }
     }
+
+    fn possible_states_iter(&self) -> ActionIterator<'a> {
+        let grammar_table = &self.reducible_grammar_table.grammar_table;
+
+        let state_cnt = self.state_table.states;
+        let possible_states = (0..state_cnt).into_iter().flat_map(|state_idx| {
+            let action_table = &self.state_table.action;
+
+            let action_columns = action_table
+                .iter()
+                .enumerate()
+                // safe to unwrap given bounds derived from range
+                .map(move |(col_idx, col)| {
+                    let action = col.get(state_idx).unwrap();
+                    (state_idx, col_idx, action)
+                });
+
+            action_columns
+        });
+
+        let tokens = grammar_table.tokens().map(SymbolOrToken::Token);
+        let symbols = grammar_table.symbols().map(SymbolOrToken::Symbol);
+        let lookahead_variants = tokens.chain(symbols).collect::<Vec<_>>();
+        let states = possible_states
+            .map(|(state_idx, lookahead_idx, action)| {
+                let lookahead = lookahead_variants[lookahead_idx].clone();
+
+                PossibleActions::new(state_idx, lookahead, action)
+            })
+            .collect();
+
+        ActionIterator::new(states)
+    }
 }
 
-impl std::fmt::Display for StateTable {
+impl<'a> std::fmt::Display for StateTable<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let grammar_table = &self.reducible_grammar_table.grammar_table;
+
         write!(
             f,
             "{}\n{}",
-            &self.grammar_table,
-            self.state_table.human_readable_format(&self.grammar_table)
+            grammar_table,
+            self.state_table.human_readable_format(grammar_table)
         )
     }
 }
 
-fn codegen(_table: &StateTable) -> Result<TokenStream, String> {
+struct PossibleActions<'a> {
+    state_id: usize,
+    lookahead: SymbolOrToken<'a>,
+    action: &'a Action,
+}
+
+impl<'a> PossibleActions<'a> {
+    fn new(state_id: usize, lookahead: SymbolOrToken<'a>, action: &'a Action) -> Self {
+        Self {
+            state_id,
+            lookahead,
+            action,
+        }
+    }
+}
+
+/// An ordered iterator over all tokens in a grammar table.
+struct ActionIterator<'a> {
+    states: Vec<PossibleActions<'a>>,
+}
+
+impl<'a> ActionIterator<'a> {
+    fn new(states: Vec<PossibleActions<'a>>) -> Self {
+        Self { states }
+    }
+}
+
+impl<'a> Iterator for ActionIterator<'a> {
+    type Item = PossibleActions<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.states.pop()
+    }
+}
+
+struct ActionMatcherCodeGen<'a> {
+    possible_lookahead_states: ActionIterator<'a>,
+    reducers: &'a [ReducerAction],
+}
+
+impl<'a> ActionMatcherCodeGen<'a> {
+    fn new(possible_lookahead_states: ActionIterator<'a>, reducers: &'a [ReducerAction]) -> Self {
+        Self {
+            possible_lookahead_states,
+            reducers,
+        }
+    }
+}
+
+impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        todo!()
+    }
+}
+
+struct GotoTableLookupCodeGen<'a> {
+    goto_table: Vec<Vec<&'a Goto>>,
+}
+
+impl<'a> GotoTableLookupCodeGen<'a> {
+    fn new(goto_table: Vec<Vec<&'a Goto>>) -> Self {
+        Self { goto_table }
+    }
+}
+
+impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let header_stream = quote! {
+            fn goto(state: usize) -> Result<usize, String> {
+            }
+        };
+
+        tokens.extend(header_stream)
+    }
+}
+
+/// Generates the context for storing parse state.
+struct ParserCtxCodeGen {}
+
+fn codegen(table: &StateTable) -> Result<TokenStream, String> {
+    let states_iter = table.possible_states_iter();
+
+    for state in states_iter {}
     Ok(TokenStream::new())
 }
 
@@ -329,9 +474,15 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let annotated_enum = parse(input).unwrap();
-    let grammar_table = generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
-    let lr_table = generate_table_from_grammar(GeneratorKind::Lr1, &grammar_table).unwrap();
-    let state_table = StateTable::new(grammar_table, lr_table);
+
+    let reducible_grammar_table =
+        generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
+
+    let lr_table =
+        generate_table_from_grammar(GeneratorKind::Lr1, &reducible_grammar_table.grammar_table)
+            .unwrap();
+
+    let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
     codegen(&state_table).unwrap().into()
 }

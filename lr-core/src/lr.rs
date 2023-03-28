@@ -678,15 +678,67 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     collection
 }
 
+/// A wrapper type for annotating a rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateId(usize);
+
+impl StateId {
+    /// Instantiates a new [StateId] from a reference id.
+    ///
+    /// # Safety
+    ///
+    /// Caller guarantees that the id usize corresponds to a valid state in
+    /// the parse table.
+    pub fn unchecked_new(id: usize) -> Self {
+        StateId(id)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<StateId> for usize {
+    fn from(value: StateId) -> Self {
+        value.as_usize()
+    }
+}
+
+/// A wrapper type for annotating a rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuleId(usize);
+
+impl RuleId {
+    /// Instantiates a new [RuleId] from a reference id.
+    ///
+    /// # Safety
+    ///
+    /// Caller guarantees that the id usize corresponds to a valid rule id in
+    /// the corresponding grammar.
+    pub fn unchecked_new(id: usize) -> Self {
+        RuleId(id)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<RuleId> for usize {
+    fn from(value: RuleId) -> Self {
+        value.as_usize()
+    }
+}
+
 /// Represents one of 4 valid actions for the action table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// The goal state has been reached and a parse can be accepted.
     Accept,
     /// Shift the input on to the token stream.
-    Shift(usize),
+    Shift(StateId),
     /// Reduce the rule to a previous state and type.
-    Reduce(usize),
+    Reduce(RuleId),
     /// No further actions for the parse.
     DeadState,
 }
@@ -711,9 +763,9 @@ impl Default for Goto {
 
 #[derive(Debug)]
 pub struct LrTable {
-    states: usize,
-    goto: Vec<Vec<Goto>>,
-    action: Vec<Vec<Action>>,
+    pub states: usize,
+    pub goto: Vec<Vec<Goto>>,
+    pub action: Vec<Vec<Action>>,
 }
 
 impl LrTable {
@@ -772,9 +824,11 @@ impl LrTable {
                     col.get(curr_state)
                         .map(|a| match a {
                             Action::Accept => format!("{: >10}", "accept"),
-                            Action::Shift(id) => format!("{: >10}", format!("s{}", id)),
+                            Action::Shift(id) => format!("{: >10}", format!("s{}", id.as_usize())),
                             // rules are 1-indexed, when pretty printed
-                            Action::Reduce(id) => format!("{: >10}", format!("r{}", id + 1)),
+                            Action::Reduce(id) => {
+                                format!("{: >10}", format!("r{}", id.as_usize() + 1))
+                            }
                             Action::DeadState => format!("{: >10}", DEAD_STATE_STR),
                         })
                         .unwrap_or_else(|| format!("{: >10}", ""))
@@ -856,7 +910,7 @@ fn build_table<'a>(
                 let k = canonical_collection.id_from_set(&sk);
 
                 if let Some(k) = k {
-                    action_table[a.as_usize()][x] = Action::Shift(k);
+                    action_table[a.as_usize()][x] = Action::Shift(StateId::unchecked_new(k));
                     continue;
                 }
             }
@@ -888,7 +942,7 @@ fn build_table<'a>(
                     .position(|rule| rule == &production_from_stack);
 
                 if let Some(rule_id) = rule_id {
-                    action_table[a.as_usize()][x] = Action::Reduce(rule_id);
+                    action_table[a.as_usize()][x] = Action::Reduce(RuleId::unchecked_new(rule_id));
                 };
             }
         }
