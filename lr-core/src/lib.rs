@@ -2,6 +2,7 @@ use grammar::GrammarLoadError;
 
 pub mod grammar;
 pub mod lr;
+mod testing_parser;
 
 /// Represents the kind of table that can be generated
 pub enum GeneratorKind {
