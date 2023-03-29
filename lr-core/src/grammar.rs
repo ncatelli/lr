@@ -573,7 +573,7 @@ pub fn define_rule_mut<S: AsRef<str>>(
     }
 }
 
-pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
+pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
     let mut grammar_table =
         DefaultInitializedWithGoalProductionGrammarTableBuilder::initialize_table();
 
@@ -657,12 +657,7 @@ mod tests {
 
     #[test]
     fn should_parse_table_with_valid_test_grammar() {
-        let grammar_table = load_grammar(TEST_GRAMMAR);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(TEST_GRAMMAR).unwrap();
 
         assert_eq!(2, grammar_table.symbols.len());
         // 3 builtins plus `(` and `)`
@@ -688,16 +683,12 @@ mod tests {
 
     #[test]
     fn should_iterate_symbols_in_order() {
-        let res = load_grammar(
-            "
+        let grammar = "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
 <addition> ::= <expr> + <expr>  
-        ",
-        );
-
-        assert!(res.is_ok());
-        let grammar_table = res.unwrap();
+        ";
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let mut symbol_iter = grammar_table.symbols();
 
@@ -712,16 +703,12 @@ mod tests {
 
     #[test]
     fn should_iterate_tokens_in_order() {
-        let res = load_grammar(
-            "
+        let grammar = "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
 <addition> ::= <expr> + <expr>  
-        ",
-        );
-
-        assert!(res.is_ok());
-        let grammar_table = res.unwrap();
+        ";
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let mut token_iter = grammar_table
             .tokens()

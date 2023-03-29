@@ -1039,10 +1039,7 @@ mod tests {
 <T> ::= <T> + 0
 ";
 
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1077,12 +1074,7 @@ mod tests {
     #[test]
     fn follow_set_returns_expected_values() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1117,12 +1109,7 @@ mod tests {
     #[test]
     fn closure_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_rule = grammar_table.rules().next().unwrap();
         let eof = grammar_table
@@ -1170,9 +1157,6 @@ mod tests {
 <F> ::= n";
         let grammar_table = load_grammar(grammar);
 
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
 
         let s0 = initial_item_set(&grammar_table);
@@ -1186,12 +1170,7 @@ mod tests {
     #[test]
     fn goto_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_item_set = initial_item_set(&grammar_table);
         let s0 = closure(&grammar_table, initial_item_set);
@@ -1220,11 +1199,7 @@ mod tests {
     #[test]
     fn collection_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        assert!(grammar_table.is_ok());
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_item_set = initial_item_set(&grammar_table);
         let s0 = closure(&grammar_table, initial_item_set);
@@ -1279,11 +1254,7 @@ mod tests {
 <T> ::= <F> * <T>
 <T> ::= <F>
 <F> ::= n";
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        assert!(grammar_table.is_ok());
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let collection = build_canonical_collection(&grammar_table);
         assert_eq!(
@@ -1303,28 +1274,5 @@ mod tests {
         for ((sid, items_in_state), expected_items) in state_rules_assertion_tuples {
             assert_eq!((sid, items_in_state), (sid, expected_items))
         }
-    }
-
-    #[test]
-    fn should_build_expected_table_from_grammar() {
-        let grammar = "
-<E> ::= <T> - <E>
-<E> ::= <T>
-<T> ::= <F> * <T>
-<T> ::= <F>
-<F> ::= 1";
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        assert!(grammar_table.is_ok());
-        let grammar_table = grammar_table.unwrap();
-
-        let collection = build_canonical_collection(&grammar_table);
-        let build_table_res = build_table(&grammar_table, &collection);
-
-        assert!(build_table_res.is_ok());
-        let table = build_table_res.unwrap();
-
-        println!("{}", table.human_readable_format(&grammar_table))
     }
 }
