@@ -1,5 +1,5 @@
 use lr_core::{
-    grammar::{GrammarTable, SymbolOrToken},
+    grammar::GrammarTable,
     lr::{Action, Goto, LrTable},
 };
 use proc_macro2::{Span, TokenStream};
@@ -33,7 +33,6 @@ impl Spanned for Rule {
 enum ReducerAction {
     Closure(ExprClosure),
     Fn(Ident),
-    None,
 }
 
 enum GrammarItemAttributeKind {
@@ -68,24 +67,19 @@ fn parse_attribute_metadata(input: ParseStream<'_>) -> syn::Result<(Rule, Reduce
         return Err(lookahead.error());
     };
 
-    // check whether a handler closure has been provided.
-    if input.is_empty() {
-        syn::Result::Ok((spanned_rule, ReducerAction::None))
-    } else {
-        let _separator: Token![,] = input.parse()?;
+    let _separator: Token![,] = input.parse()?;
 
-        // attempt to parse out a closure, and if this falls through,
-        // attempt an Ident representing a function.
-        let expr_closure_action = input.parse::<ExprClosure>();
-        match expr_closure_action {
-            Ok(action) => syn::Result::Ok((spanned_rule, ReducerAction::Closure(action))),
-            Err(_) => {
-                let action = input.parse::<Ident>().map_err(|e| {
-                    let span = e.span();
-                    syn::Error::new(span, "expected either a closure or a function identifier")
-                })?;
-                syn::Result::Ok((spanned_rule, ReducerAction::Fn(action)))
-            }
+    // attempt to parse out a closure, and if this falls through,
+    // attempt an Ident representing a function.
+    let expr_closure_action = input.parse::<ExprClosure>();
+    match expr_closure_action {
+        Ok(action) => syn::Result::Ok((spanned_rule, ReducerAction::Closure(action))),
+        Err(_) => {
+            let action = input.parse::<Ident>().map_err(|e| {
+                let span = e.span();
+                syn::Error::new(span, "expected either a closure or a function identifier")
+            })?;
+            syn::Result::Ok((spanned_rule, ReducerAction::Fn(action)))
         }
     }
 }
@@ -99,16 +93,13 @@ impl Spanned for GoalAttributeMetadata {
     fn span(&self) -> Span {
         let rule_span = self.rule.span();
         let action_span = match &self.reducer {
-            ReducerAction::Closure(closure) => Some(closure.span()),
-            ReducerAction::Fn(fn_ident) => Some(fn_ident.span()),
-            ReducerAction::None => None,
+            ReducerAction::Closure(closure) => closure.span(),
+            ReducerAction::Fn(fn_ident) => fn_ident.span(),
         };
 
         // Attempt to join the two spans or return the rule_span if not
         // possible
-        action_span
-            .and_then(|action_span| rule_span.join(action_span))
-            .unwrap_or_else(|| rule_span)
+        rule_span.join(action_span).unwrap_or_else(|| rule_span)
     }
 }
 
@@ -128,16 +119,13 @@ impl Spanned for RuleAttributeMetadata {
     fn span(&self) -> Span {
         let rule_span = self.rule.span();
         let action_span = match &self.reducer {
-            ReducerAction::Closure(closure) => Some(closure.span()),
-            ReducerAction::Fn(fn_ident) => Some(fn_ident.span()),
-            ReducerAction::None => None,
+            ReducerAction::Closure(closure) => closure.span(),
+            ReducerAction::Fn(fn_ident) => fn_ident.span(),
         };
 
         // Attempt to join the two spans or return the rule_span if not
         // possible
-        action_span
-            .and_then(|action_span| rule_span.join(action_span))
-            .unwrap_or_else(|| rule_span)
+        rule_span.join(action_span).unwrap_or_else(|| rule_span)
     }
 }
 
@@ -278,13 +266,15 @@ fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
     use lr_core::grammar::{
-        define_rule_mut, DefaultInitializedGrammarTableBuilder, GrammarInitializer,
+        define_rule_mut, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
     };
 
-    let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
+    let mut grammar_table = DefaultInitializedGrammarTableSansBuiltins::initialize_table();
     let mut goal = None;
     let mut rules = vec![];
     let mut reducers = vec![];
+
+    let _ = grammar_table.declare_eof_token("Terminal::Eof");
 
     for production in &grammar_variants.variant_metadata {
         let attr_metadata = &production.attr_metadata;
@@ -362,14 +352,13 @@ impl<'a> StateTable<'a> {
             action_columns
         });
 
-        let tokens = grammar_table.tokens().map(SymbolOrToken::Token);
-        let symbols = grammar_table.symbols().map(SymbolOrToken::Symbol);
-        let lookahead_variants = tokens.chain(symbols).collect::<Vec<_>>();
+        let tokens = grammar_table.tokens();
+        let lookahead_variants = tokens.collect::<Vec<_>>();
         let states = possible_states
             .map(|(state_idx, lookahead_idx, action)| {
                 let lookahead = lookahead_variants[lookahead_idx].clone();
 
-                PossibleActions::new(state_idx, lookahead, action)
+                ActionVariant::new(state_idx, lookahead, action)
             })
             .collect();
 
@@ -390,14 +379,15 @@ impl<'a> std::fmt::Display for StateTable<'a> {
     }
 }
 
-struct PossibleActions<'a> {
+#[derive(Debug, Clone, Copy)]
+struct ActionVariant<'a> {
     state_id: usize,
-    lookahead: SymbolOrToken<'a>,
+    lookahead: lr_core::grammar::Token<'a>,
     action: &'a Action,
 }
 
-impl<'a> PossibleActions<'a> {
-    fn new(state_id: usize, lookahead: SymbolOrToken<'a>, action: &'a Action) -> Self {
+impl<'a> ActionVariant<'a> {
+    fn new(state_id: usize, lookahead: lr_core::grammar::Token<'a>, action: &'a Action) -> Self {
         Self {
             state_id,
             lookahead,
@@ -407,18 +397,19 @@ impl<'a> PossibleActions<'a> {
 }
 
 /// An ordered iterator over all tokens in a grammar table.
+#[derive(Debug, Clone)]
 struct ActionIterator<'a> {
-    states: Vec<PossibleActions<'a>>,
+    states: Vec<ActionVariant<'a>>,
 }
 
 impl<'a> ActionIterator<'a> {
-    fn new(states: Vec<PossibleActions<'a>>) -> Self {
+    fn new(states: Vec<ActionVariant<'a>>) -> Self {
         Self { states }
     }
 }
 
 impl<'a> Iterator for ActionIterator<'a> {
-    type Item = PossibleActions<'a>;
+    type Item = ActionVariant<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.states.pop()
@@ -426,22 +417,189 @@ impl<'a> Iterator for ActionIterator<'a> {
 }
 
 struct ActionMatcherCodeGen<'a> {
-    possible_lookahead_states: ActionIterator<'a>,
+    terminal_identifier: &'a Ident,
+    action_table_variants: ActionIterator<'a>,
     reducers: &'a [ReducerAction],
+    rhs_lens: &'a [usize],
 }
 
 impl<'a> ActionMatcherCodeGen<'a> {
-    fn new(possible_lookahead_states: ActionIterator<'a>, reducers: &'a [ReducerAction]) -> Self {
+    fn new(
+        terminal_identifier: &'a Ident,
+        action_table_variants: ActionIterator<'a>,
+        reducers: &'a [ReducerAction],
+        rhs_lens: &'a [usize],
+    ) -> Self {
         Self {
-            possible_lookahead_states,
+            terminal_identifier,
+            action_table_variants,
             reducers,
+            rhs_lens,
         }
     }
 }
 
 impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        todo!()
+        let terminal_ident = self.terminal_identifier;
+        let filtered_actions = self
+            .action_table_variants
+            .clone()
+            .into_iter()
+            // prune out all the deadstate actions
+            .filter(|variant| !matches!(variant.action, Action::DeadState));
+
+        let variants = filtered_actions.map(
+            |ActionVariant {
+                 state_id,
+                 lookahead,
+                 action,
+             }| {
+                let lookahead_repr = lookahead.as_ref();
+
+                // TODO: Need to come up with a better fix for this hack.
+                let token_variant_repr = if lookahead_repr.starts_with("<$>") {
+                    panic!("!")
+                } else if lookahead_repr.contains("::") {
+                    lookahead.as_ref().split("::").last().unwrap()
+                } else {
+                    lookahead_repr
+                };
+
+                let token_repr = format_ident!("{}", token_variant_repr);
+                let action_stream = match action {
+                    Action::Accept => quote!(Action::Accept),
+                    Action::Shift(state) => {
+                        let state = state.as_usize();
+                        quote!(Action::Shift(StateId::unchecked_new(#state)))
+                    }
+                    Action::Reduce(reduce_to) => {
+                        let reduce_to = reduce_to.as_usize();
+                        quote!(Action::Reduce(RuleId::unchecked_new(#reduce_to)))
+                    }
+                    Action::DeadState => quote!(Action::DeadState),
+                };
+
+                quote!(
+                    (#state_id, #terminal_ident::#token_repr) => Ok(#action_stream),
+                )
+            },
+        );
+
+        let variants = variants.collect::<TokenStream>();
+        let action_matcher_stream = quote!(
+            let action = match (current_state, next_term) {
+                #variants
+                _ => Err(format!(
+                    "unknown parser error with: {:?}",
+                    (current_state, input.peek())
+                )),
+            }?;
+        );
+
+        let rhs_lens = self.rhs_lens.iter();
+
+        // generate reducer variants
+        let reducers = self
+            .reducers
+            .iter()
+            .zip(rhs_lens)
+            .enumerate()
+            .map(|(production, (reducer, rhs_len))| (production + 1, reducer, *rhs_len));
+
+        let reducer_variants = reducers
+            .map(|(production, reducer, rhs_len)| match reducer {
+                ReducerAction::Closure(ec) => {
+                    quote!(#production => (#rhs_len, (#ec)(&mut parse_ctx.element_stack)),)
+                }
+                ReducerAction::Fn(f) => {
+                    quote!(#production => (#rhs_len, (#f)(&mut parse_ctx.element_stack)),)
+                }
+            })
+            .collect::<TokenStream>();
+
+        let action_dispatcher_stream = quote!(
+            match action {
+                Action::Shift(next_state) => {
+                    // a shift should never occur on an eof making this safe to unwrap.
+                    let term = input.next().map(TerminalOrNonTerminal::Terminal).unwrap();
+                    parse_ctx.push_element_mut(term);
+
+                    parse_ctx.push_state_mut(current_state);
+                    parse_ctx.push_state_mut(next_state.as_usize());
+                    Ok(())
+                }
+                Action::Reduce(reduce_to) => {
+                    let (rhs_len, non_term) = match reduce_to.as_usize() {
+                        #reducer_variants
+                        _ => (
+                            0,
+                            Err(format!(
+                                "unable to reduce to rule {}.",
+                                reduce_to.as_usize()
+                            )),
+                        ),
+                    };
+
+                    let non_term = non_term?;
+
+                    // peek at the last state before the nth element taken.
+                    let prev_state = {
+                        let mut prev_state = parse_ctx.pop_state_mut();
+                        for _ in 1..rhs_len {
+                            prev_state = parse_ctx.pop_state_mut();
+                        }
+                        let prev_state =
+                            prev_state.ok_or_else(|| "state stack is empty".to_string())?;
+                        parse_ctx.push_state_mut(prev_state);
+                        prev_state
+                    };
+
+                    let goto_state = lookup_goto(prev_state, &non_term).ok_or_else(|| {
+                        format!(
+                            "no goto state for non_terminal {:?} in state {}",
+                            &non_term, current_state
+                        )
+                    })?;
+
+                    parse_ctx.push_state_mut(goto_state);
+
+                    parse_ctx
+                        .element_stack
+                        .push(TerminalOrNonTerminal::NonTerminal(non_term));
+
+                    Ok(())
+                }
+                Action::DeadState => Err(format!(
+                    "unexpected input {} for state {}",
+                    input.peek().unwrap_or(&Terminal::Eof),
+                    current_state
+                )),
+                Action::Accept => {
+                    let element = match parse_ctx.element_stack.len() {
+                        1 => Ok(parse_ctx.element_stack.pop().unwrap()),
+                        0 => Err("Reached accept state with empty stack".to_string()),
+                        _ => Err(format!(
+                            "Reached accept state with data on stack {:?}",
+                            parse_ctx.element_stack,
+                        )),
+                    }?;
+
+                    match element {
+                        TerminalOrNonTerminal::Terminal(term) => {
+                            return Err(format!(
+                                "top of stack was a terminal at accept state: {:?}",
+                                term
+                            ))
+                        }
+                        TerminalOrNonTerminal::NonTerminal(nonterm) => return Ok(nonterm),
+                    }
+                }
+            }?;
+        );
+
+        tokens.extend(action_matcher_stream);
+        tokens.extend(action_dispatcher_stream)
     }
 }
 
@@ -600,12 +758,43 @@ fn codegen(
         &table.state_table.goto,
     );
 
+    let states_iter = table.possible_states_iter();
+    let reducers = grammar_table.reducers.as_ref();
+    let rhs_lens = grammar_table
+        .grammar_table
+        .rules()
+        .map(|rule_ref| rule_ref.rhs_len())
+        .collect::<Vec<_>>();
+    let action_matcher_codegen =
+        ActionMatcherCodeGen::new(terminal_identifier, states_iter, &reducers, &rhs_lens)
+            .into_token_stream();
+
     let parser_ctx = ParserCtxCodeGen::new(terminal_identifier, nonterminal_identifier);
-    let _states_iter = table.possible_states_iter();
+
+    let parser_fn_stream = quote!(
+        #[allow(unused)]
+        pub fn lr_parse_input<T: AsRef<[Terminal]>>(input: T) -> Result<NonTerminal, String> {
+            use lr_core::lr::{Action, RuleId, StateId};
+
+            let mut input = input.as_ref().iter().copied().peekable();
+            let mut parse_ctx = ParseContext::default();
+            parse_ctx.push_state_mut(0);
+
+            loop {
+                let current_state = parse_ctx
+                    .pop_state_mut()
+                    .ok_or_else(|| "state stack is empty".to_string())?;
+
+                let next_term = input.peek().unwrap_or(&Terminal::Eof);
+                #action_matcher_codegen
+            }
+        }
+    );
 
     let stream = [
         parser_ctx.into_token_stream(),
         goto_table_codegen.into_token_stream(),
+        parser_fn_stream.into_token_stream(),
     ]
     .into_iter()
     .collect();
@@ -629,6 +818,10 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         generate_table_from_grammar(GeneratorKind::Lr1, &reducible_grammar_table.grammar_table)
             .unwrap();
 
+    println!(
+        "{:?}",
+        lr_table.human_readable_format(&reducible_grammar_table.grammar_table)
+    );
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
     let term_ident = reducible_grammar_table
@@ -637,12 +830,14 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .unwrap();
     let non_terminal_ident = annotated_enum.enum_ident.clone();
 
-    codegen(
+    let output_stream = codegen(
         &term_ident,
         &non_terminal_ident,
         &reducible_grammar_table,
         &state_table,
     )
     .unwrap()
-    .into()
+    .into();
+
+    output_stream
 }

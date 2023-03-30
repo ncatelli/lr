@@ -55,7 +55,7 @@ impl<'a> std::fmt::Display for SymbolOrToken<'a> {
 
 /// A wrapper type for symbols that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SymbolRef(usize);
+pub struct SymbolRef(usize);
 
 impl SymbolRef {
     pub(crate) fn new(symbol: usize) -> Self {
@@ -84,7 +84,7 @@ impl std::fmt::Display for SymbolRef {
 
 /// A wrapper type for tokens that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TokenRef(usize);
+pub struct TokenRef(usize);
 
 impl TokenRef {
     pub(crate) fn new(token: usize) -> Self {
@@ -112,7 +112,7 @@ impl std::fmt::Display for TokenRef {
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrTokenRef {
+pub enum SymbolOrTokenRef {
     Symbol(SymbolRef),
     Token(TokenRef),
 }
@@ -127,7 +127,7 @@ impl std::fmt::Display for SymbolOrTokenRef {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
-pub(crate) struct RuleRef {
+pub struct RuleRef {
     pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
 }
@@ -154,6 +154,10 @@ impl RuleRef {
             .all(|items| items == &SymbolOrTokenRef::Symbol(self.lhs));
 
         !(self.rhs.is_empty() || is_non_terminal_rule)
+    }
+
+    pub fn rhs_len(&self) -> usize {
+        self.rhs.len()
     }
 }
 
@@ -243,6 +247,8 @@ pub struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     rules: Vec<RuleRef>,
+
+    eof_token: Option<TokenRef>,
 }
 
 impl GrammarTable {
@@ -275,6 +281,25 @@ impl GrammarTable {
         self.rules.push(rule);
     }
 
+    pub fn declare_eof_token<S: AsRef<str>>(
+        &mut self,
+        token: S,
+    ) -> Result<usize, GrammarLoadError> {
+        let repr = token.as_ref();
+
+        let token_id = self.add_token_mut(repr);
+        self.eof_token = Some(TokenRef(token_id));
+
+        Ok(token_id)
+    }
+
+    pub fn eof_token(&self) -> TokenRef {
+        match self.eof_token {
+            Some(eof_tok) => eof_tok,
+            None => self.builtin_token_mapping(&BuiltinTokens::Eof),
+        }
+    }
+
     pub fn symbols(&self) -> SymbolIterator {
         SymbolIterator::new(self)
     }
@@ -300,7 +325,7 @@ impl GrammarTable {
             .unwrap()
     }
 
-    pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
+    pub fn rules(&self) -> impl Iterator<Item = &RuleRef> {
         self.rules.iter()
     }
 }
@@ -341,6 +366,25 @@ impl std::fmt::Display for GrammarTable {
 /// Provides methods for initializing a [GrammarTable] with expected terms.
 pub trait GrammarInitializer {
     fn initialize_table() -> GrammarTable;
+}
+
+/// Defines a [GrammarTable] builder that includes a Goal symbol.
+pub struct DefaultInitializedGrammarTableSansBuiltins;
+
+impl DefaultInitializedGrammarTableSansBuiltins {
+    const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
+}
+
+impl GrammarInitializer for DefaultInitializedGrammarTableSansBuiltins {
+    fn initialize_table() -> GrammarTable {
+        let mut grammar_table = GrammarTable::default();
+
+        for builtin_symbol in Self::DEFAULT_SYMBOLS {
+            grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
+        }
+
+        grammar_table
+    }
 }
 
 /// Defines a [GrammarTable] builder that includes a Goal symbol and common
@@ -454,6 +498,7 @@ pub enum GrammarLoadErrorKind {
     NoTerminalProduction,
     InvalidRule,
     ConflictingRule,
+    InvalidToken,
 }
 
 impl std::fmt::Display for GrammarLoadErrorKind {
@@ -464,6 +509,7 @@ impl std::fmt::Display for GrammarLoadErrorKind {
             }
             Self::InvalidRule => write!(f, "provided rule is invalid",),
             Self::ConflictingRule => write!(f, "provided rule conflicts with existing rule",),
+            Self::InvalidToken => write!(f, "provided token is not registered with grammer"),
         }
     }
 }

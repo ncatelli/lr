@@ -4,7 +4,7 @@ use crate::TerminalOrNonTerminal;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Terminal {
     Epsilon,
-    EoF,
+    Eof,
     EndL,
     Plus,
     Star,
@@ -16,7 +16,7 @@ impl std::fmt::Display for Terminal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
             Terminal::Epsilon => "<epsilon>",
-            Terminal::EoF => "<$>",
+            Terminal::Eof => "<$>",
             Terminal::EndL => "<endl>",
 
             Terminal::Plus => "+",
@@ -101,24 +101,24 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
             .pop_state_mut()
             .ok_or_else(|| "state stack is empty".to_string())?;
 
-        let next_term = input.peek().unwrap_or(&Terminal::EoF);
+        let next_term = input.peek().unwrap_or(&Terminal::Eof);
         let action = match (current_state, next_term) {
             (0, Terminal::Zero) => Ok(Action::Shift(StateId::unchecked_new(3))),
             (0, Terminal::One) => Ok(Action::Shift(StateId::unchecked_new(4))),
 
-            (1, Terminal::EoF) => Ok(Action::Accept),
+            (1, Terminal::Eof) => Ok(Action::Accept),
             (1, Terminal::Star) => Ok(Action::Shift(StateId::unchecked_new(5))),
             (1, Terminal::Plus) => Ok(Action::Shift(StateId::unchecked_new(6))),
 
-            (2, Terminal::EoF) => Ok(Action::Reduce(RuleId::unchecked_new(4))),
+            (2, Terminal::Eof) => Ok(Action::Reduce(RuleId::unchecked_new(4))),
             (2, Terminal::Star) => Ok(Action::Reduce(RuleId::unchecked_new(4))),
             (2, Terminal::Plus) => Ok(Action::Reduce(RuleId::unchecked_new(4))),
 
-            (3, Terminal::EoF) => Ok(Action::Reduce(RuleId::unchecked_new(5))),
+            (3, Terminal::Eof) => Ok(Action::Reduce(RuleId::unchecked_new(5))),
             (3, Terminal::Star) => Ok(Action::Reduce(RuleId::unchecked_new(5))),
             (3, Terminal::Plus) => Ok(Action::Reduce(RuleId::unchecked_new(5))),
 
-            (4, Terminal::EoF) => Ok(Action::Reduce(RuleId::unchecked_new(6))),
+            (4, Terminal::Eof) => Ok(Action::Reduce(RuleId::unchecked_new(6))),
             (4, Terminal::Star) => Ok(Action::Reduce(RuleId::unchecked_new(6))),
             (4, Terminal::Plus) => Ok(Action::Reduce(RuleId::unchecked_new(6))),
 
@@ -128,11 +128,11 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
             (6, Terminal::Zero) => Ok(Action::Shift(StateId::unchecked_new(3))),
             (6, Terminal::One) => Ok(Action::Shift(StateId::unchecked_new(4))),
 
-            (7, Terminal::EoF) => Ok(Action::Reduce(RuleId::unchecked_new(2))),
+            (7, Terminal::Eof) => Ok(Action::Reduce(RuleId::unchecked_new(2))),
             (7, Terminal::Star) => Ok(Action::Reduce(RuleId::unchecked_new(2))),
             (7, Terminal::Plus) => Ok(Action::Reduce(RuleId::unchecked_new(2))),
 
-            (8, Terminal::EoF) => Ok(Action::Reduce(RuleId::unchecked_new(3))),
+            (8, Terminal::Eof) => Ok(Action::Reduce(RuleId::unchecked_new(3))),
             (8, Terminal::Star) => Ok(Action::Reduce(RuleId::unchecked_new(3))),
             (8, Terminal::Plus) => Ok(Action::Reduce(RuleId::unchecked_new(3))),
 
@@ -181,7 +181,7 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                                 Ok(NonTerminal::E(Box::new(non_term_kind)))
                             } else {
                                 Err(format!(
-                                    "expected 3 elements at top of stack in rule 1 reducer.",
+                                    "expected 3 elements at top of stack in rule 2 reducer.",
                                 ))
                             }
                         })(&mut parse_ctx.element_stack),
@@ -202,7 +202,7 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                                 Ok(NonTerminal::E(Box::new(non_term_kind)))
                             } else {
                                 Err(format!(
-                                    "expected 3 elements at top of stack in rule 2 reducer.",
+                                    "expected 3 elements at top of stack in rule 3 reducer.",
                                 ))
                             }
                         })(&mut parse_ctx.element_stack),
@@ -216,7 +216,7 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                                 Ok(NonTerminal::E(Box::new(non_term_kind)))
                             } else {
                                 Err(format!(
-                                    "expected non-terminal at top of stack in rule 3 reducer.",
+                                    "expected non-terminal at top of stack in rule 4 reducer.",
                                 ))
                             }
                         })(&mut parse_ctx.element_stack),
@@ -274,7 +274,7 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
             }
             Action::DeadState => Err(format!(
                 "unexpected input {} for state {}",
-                input.peek().unwrap_or(&Terminal::EoF),
+                input.peek().unwrap_or(&Terminal::Eof),
                 current_state
             )),
             Action::Accept => {

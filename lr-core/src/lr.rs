@@ -128,7 +128,8 @@ impl LrTableGenerator for Lr1 {
 }
 
 fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
-    let eof_token_ref = grammar_table.builtin_token_mapping(&BuiltinTokens::Eof);
+    let eof_token_ref = grammar_table.eof_token();
+
     grammar_table
         .rules()
         .take(1)
