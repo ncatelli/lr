@@ -610,8 +610,6 @@ fn codegen(
     .into_iter()
     .collect();
 
-    println!("{:#}", &stream);
-
     Ok(stream)
 }
 
@@ -633,8 +631,10 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
-    let term_ident = reducible_grammar_table.token_ident().unwrap();
-    let term_ident = format_ident!("{}", term_ident);
+    let term_ident = reducible_grammar_table
+        .token_ident()
+        .map(|t| format_ident!("{}", t))
+        .unwrap();
     let non_terminal_ident = annotated_enum.enum_ident.clone();
 
     codegen(
