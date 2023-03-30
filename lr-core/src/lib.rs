@@ -55,6 +55,12 @@ impl std::fmt::Display for Error {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalOrNonTerminal<T, NT> {
+    Terminal(T),
+    NonTerminal(NT),
+}
+
 #[allow(unused)]
 pub fn generate_table_from_ruleset<G: AsRef<str>>(
     kind: GeneratorKind,

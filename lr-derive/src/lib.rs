@@ -3,7 +3,7 @@ use lr_core::{
     lr::{Action, Goto, LrTable},
 };
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{format_ident, quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
@@ -264,6 +264,16 @@ impl ReducibleGrammarTable {
     }
 }
 
+impl ReducibleGrammarTable {
+    fn token_ident(&self) -> Option<String> {
+        self.grammar_table
+            .tokens()
+            .filter(|t| !lr_core::grammar::BuiltinTokens::is_builtin(t))
+            .filter_map(|t| t.as_ref().split("::").next().map(|t| t.to_string()))
+            .next()
+    }
+}
+
 fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
@@ -436,34 +446,173 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
 }
 
 struct GotoTableLookupCodeGen<'a> {
-    goto_table: Vec<Vec<&'a Goto>>,
+    nonterminal_ident: Ident,
+    variant_idents: Vec<Ident>,
+
+    goto_table: &'a Vec<Vec<Goto>>,
 }
 
 impl<'a> GotoTableLookupCodeGen<'a> {
-    fn new(goto_table: Vec<Vec<&'a Goto>>) -> Self {
-        Self { goto_table }
+    fn new(
+        nonterminal_ident: Ident,
+        variant_idents: Vec<Ident>,
+        goto_table: &'a Vec<Vec<Goto>>,
+    ) -> Self {
+        Self {
+            nonterminal_ident,
+            variant_idents,
+            goto_table,
+        }
     }
 }
 
 impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let header_stream = quote! {
-            fn goto(state: usize) -> Result<usize, String> {
-            }
-        };
+        let mut variants = vec![];
 
-        tokens.extend(header_stream)
+        // skip the first (goal) symbol
+        let per_symbol_gotos = self
+            .goto_table
+            .iter()
+            // skip the goal symbol
+            .skip(1)
+            .enumerate();
+
+        let nonterm_ident = &self.nonterminal_ident;
+
+        for (symbol_id, gotos) in per_symbol_gotos {
+            let valid_variants =
+                gotos
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(state_id, goto)| match goto {
+                        Goto::State(goto_state) => Some((state_id, symbol_id, goto_state)),
+                        Goto::DeadState => None,
+                    });
+
+            for (state, production_offset, goto_state) in valid_variants {
+                let production_ident = &self.variant_idents[production_offset];
+                let goto_variant_stream = quote!(
+                    (#state, #nonterm_ident::#production_ident(_)) => Some(#goto_state),
+                );
+                variants.push(goto_variant_stream);
+            }
+        }
+
+        // collect all match patterns into a single stream an interpolate them
+        // into the lookup.
+        let variants = variants.into_iter().collect::<TokenStream>();
+        let lookup_goto_stream = quote!(
+            fn lookup_goto(state: usize, non_term: &NonTerminal) -> Option<usize> {
+                match (state, non_term) {
+                    #variants
+                    _ => None,
+                }
+            }
+        );
+
+        tokens.extend(lookup_goto_stream)
     }
 }
 
 /// Generates the context for storing parse state.
-struct ParserCtxCodeGen {}
+struct ParserCtxCodeGen<'a> {
+    terminal_identifier: &'a Ident,
+    non_terminal_identifier: &'a Ident,
+}
 
-fn codegen(table: &StateTable) -> Result<TokenStream, String> {
-    let states_iter = table.possible_states_iter();
+impl<'a> ParserCtxCodeGen<'a> {
+    fn new(terminal_identifier: &'a Ident, non_terminal_identifier: &'a Ident) -> Self {
+        Self {
+            terminal_identifier,
+            non_terminal_identifier,
+        }
+    }
+}
 
-    for state in states_iter {}
-    Ok(TokenStream::new())
+impl<'a> ToTokens for ParserCtxCodeGen<'a> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let term_ident = format_ident!("{}", &self.terminal_identifier);
+        let nonterm_ident = format_ident!("{}", &self.non_terminal_identifier.to_string());
+
+        let parser_ctx_stream = quote!(
+            struct ParseContext {
+                state_stack: Vec<usize>,
+                element_stack: Vec<lr_core::TerminalOrNonTerminal<#term_ident, #nonterm_ident>>,
+            }
+
+            impl ParseContext {
+                fn push_state_mut(&mut self, state_id: usize) {
+                    self.state_stack.push(state_id)
+                }
+
+                fn pop_state_mut(&mut self) -> Option<usize> {
+                    self.state_stack.pop()
+                }
+
+                fn push_element_mut(&mut self, elem: TerminalOrNonTerminal<#term_ident, #nonterm_ident>) {
+                    self.element_stack.push(elem)
+                }
+
+                fn pop_element_mut(
+                    &mut self,
+                ) -> Option<TerminalOrNonTerminal<#term_ident, #nonterm_ident>> {
+                    self.element_stack.pop()
+                }
+            }
+
+            impl Default for ParseContext {
+                fn default() -> Self {
+                    Self {
+                        state_stack: vec![],
+                        element_stack: vec![],
+                    }
+                }
+            }
+        );
+
+        tokens.extend(parser_ctx_stream);
+    }
+}
+
+fn codegen(
+    terminal_identifier: &Ident,
+    nonterminal_identifier: &Ident,
+    grammar_table: &ReducibleGrammarTable,
+    table: &StateTable,
+) -> Result<TokenStream, String> {
+    let goto_formatted_nonterms = grammar_table
+        .grammar_table
+        .symbols()
+        .skip(1)
+        .map(|s| {
+            s.as_ref()
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string()
+        })
+        .map(|s| format_ident!("{}", s))
+        .collect::<Vec<_>>();
+
+    let goto_table_codegen = GotoTableLookupCodeGen::new(
+        nonterminal_identifier.clone(),
+        goto_formatted_nonterms,
+        &table.state_table.goto,
+    );
+
+    let parser_ctx = ParserCtxCodeGen::new(terminal_identifier, nonterminal_identifier);
+    let _states_iter = table.possible_states_iter();
+
+    let stream = [
+        parser_ctx.into_token_stream(),
+        goto_table_codegen.into_token_stream(),
+    ]
+    .into_iter()
+    .collect();
+
+    println!("{:#}", &stream);
+
+    Ok(stream)
 }
 
 /// The dispatcher method for tokens annotated with the Lr1 derive.
@@ -484,5 +633,16 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
-    codegen(&state_table).unwrap().into()
+    let term_ident = reducible_grammar_table.token_ident().unwrap();
+    let term_ident = format_ident!("{}", term_ident);
+    let non_terminal_ident = annotated_enum.enum_ident.clone();
+
+    codegen(
+        &term_ident,
+        &non_terminal_ident,
+        &reducible_grammar_table,
+        &state_table,
+    )
+    .unwrap()
+    .into()
 }

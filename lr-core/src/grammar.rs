@@ -14,14 +14,14 @@ impl BuiltinSymbols {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinTokens {
+pub enum BuiltinTokens {
     Epsilon,
     Eof,
     EndL,
 }
 
 impl BuiltinTokens {
-    pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
+    pub fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
         let val = token_str.as_ref();
         [Self::Epsilon, Self::Eof, Self::EndL]
             .iter()

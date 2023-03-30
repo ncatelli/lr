@@ -1,3 +1,5 @@
+use crate::TerminalOrNonTerminal;
+
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Terminal {
@@ -40,15 +42,9 @@ pub(crate) enum NonTerminal {
     B(Terminal),
 }
 
-#[derive(Debug)]
-pub(crate) enum TermOrNonTerm {
-    Terminal(Terminal),
-    NonTerminal(NonTerminal),
-}
-
 pub(crate) struct ParseContext {
     state_stack: Vec<usize>,
-    element_stack: Vec<TermOrNonTerm>,
+    element_stack: Vec<TerminalOrNonTerminal<Terminal, NonTerminal>>,
 }
 
 impl ParseContext {
@@ -60,12 +56,14 @@ impl ParseContext {
         self.state_stack.pop()
     }
 
-    pub(crate) fn push_element_mut(&mut self, elem: TermOrNonTerm) {
+    pub(crate) fn push_element_mut(&mut self, elem: TerminalOrNonTerminal<Terminal, NonTerminal>) {
         self.element_stack.push(elem)
     }
 
     #[allow(unused)]
-    pub(crate) fn pop_element_mut(&mut self) -> Option<TermOrNonTerm> {
+    pub(crate) fn pop_element_mut(
+        &mut self,
+    ) -> Option<TerminalOrNonTerminal<Terminal, NonTerminal>> {
         self.element_stack.pop()
     }
 }
@@ -147,7 +145,7 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
         match action {
             Action::Shift(next_state) => {
                 // a shift should never occur on an eof making this safe to unwrap.
-                let term = input.next().map(TermOrNonTerm::Terminal).unwrap();
+                let term = input.next().map(TerminalOrNonTerminal::Terminal).unwrap();
                 parse_ctx.push_element_mut(term);
 
                 parse_ctx.push_state_mut(current_state);
@@ -158,8 +156,8 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                 let (rhs_len, non_term) = match reduce_to.as_usize() {
                     1 => (
                         1,
-                        (|elems: &mut Vec<TermOrNonTerm>| {
-                            if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
+                        (|elems: &mut Vec<TerminalOrNonTerminal<Terminal, NonTerminal>>| {
+                            if let Some(TerminalOrNonTerminal::NonTerminal(nonterm)) = elems.pop() {
                                 Ok(nonterm)
                             } else {
                                 Err(format!(
@@ -170,12 +168,12 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                     ),
                     2 => (
                         3,
-                        (|elems: &mut Vec<TermOrNonTerm>| {
+                        (|elems: &mut Vec<TerminalOrNonTerminal<Terminal, NonTerminal>>| {
                             let optional_rhs = elems.pop();
                             let optional_term = elems.pop();
                             let optional_lhs = elems.pop();
 
-                            if let [Some(TermOrNonTerm::NonTerminal(lhs)), Some(TermOrNonTerm::Terminal(Terminal::Star)), Some(TermOrNonTerm::NonTerminal(rhs))] =
+                            if let [Some(TerminalOrNonTerminal::NonTerminal(lhs)), Some(TerminalOrNonTerminal::Terminal(Terminal::Star)), Some(TerminalOrNonTerminal::NonTerminal(rhs))] =
                                 [optional_lhs, optional_term, optional_rhs]
                             {
                                 let non_term_kind = ENonTermKind::Mul(lhs, rhs);
@@ -190,13 +188,13 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                     ),
                     3 => (
                         3,
-                        (|elems: &mut Vec<TermOrNonTerm>| {
+                        (|elems: &mut Vec<TerminalOrNonTerminal<Terminal, NonTerminal>>| {
                             let optional_rhs = elems.pop();
                             let optional_term = elems.pop();
                             let optional_lhs = elems.pop();
 
                             // reversed due to popping elements
-                            if let [Some(TermOrNonTerm::NonTerminal(lhs)), Some(TermOrNonTerm::Terminal(Terminal::Plus)), Some(TermOrNonTerm::NonTerminal(rhs))] =
+                            if let [Some(TerminalOrNonTerminal::NonTerminal(lhs)), Some(TerminalOrNonTerminal::Terminal(Terminal::Plus)), Some(TerminalOrNonTerminal::NonTerminal(rhs))] =
                                 [optional_lhs, optional_term, optional_rhs]
                             {
                                 let non_term_kind = ENonTermKind::Add(lhs, rhs);
@@ -211,8 +209,8 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                     ),
                     4 => (
                         1,
-                        (|elems: &mut Vec<TermOrNonTerm>| {
-                            if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
+                        (|elems: &mut Vec<TerminalOrNonTerminal<Terminal, NonTerminal>>| {
+                            if let Some(TerminalOrNonTerminal::NonTerminal(nonterm)) = elems.pop() {
                                 let non_term_kind = ENonTermKind::Unary(nonterm);
 
                                 Ok(NonTerminal::E(Box::new(non_term_kind)))
@@ -225,8 +223,8 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                     ),
                     rule_id @ 5 | rule_id @ 6 => (
                         1,
-                        (|elems: &mut Vec<TermOrNonTerm>| {
-                            if let Some(TermOrNonTerm::Terminal(term)) = elems.pop() {
+                        (|elems: &mut Vec<TerminalOrNonTerminal<Terminal, NonTerminal>>| {
+                            if let Some(TerminalOrNonTerminal::Terminal(term)) = elems.pop() {
                                 Ok(NonTerminal::B(term))
                             } else {
                                 Err(format!(
@@ -270,7 +268,7 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
 
                 parse_ctx
                     .element_stack
-                    .push(TermOrNonTerm::NonTerminal(non_term));
+                    .push(TerminalOrNonTerminal::NonTerminal(non_term));
 
                 Ok(())
             }
@@ -290,13 +288,13 @@ pub(crate) fn parse_input_stream<T: AsRef<[Terminal]>>(input: T) -> Result<NonTe
                 }?;
 
                 match element {
-                    TermOrNonTerm::Terminal(term) => {
+                    TerminalOrNonTerminal::Terminal(term) => {
                         return Err(format!(
                             "top of stack was a terminal at accept state: {:?}",
                             term
                         ))
                     }
-                    TermOrNonTerm::NonTerminal(nonterm) => return Ok(nonterm),
+                    TerminalOrNonTerminal::NonTerminal(nonterm) => return Ok(nonterm),
                 }
             }
         }?;
