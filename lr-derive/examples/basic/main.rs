@@ -4,9 +4,9 @@ pub use relex_derive::Relex;
 
 #[derive(Relex, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terminal {
-    #[matches(r"+")]
+    #[matches(r"[+]")]
     Plus,
-    #[matches(r"*")]
+    #[matches(r"[*]")]
     Star,
     #[matches(r"0")]
     Zero,
@@ -105,7 +105,12 @@ pub enum NonTerminal {
 
 fn main() {
     let input_stream = [Terminal::One, Terminal::Plus, Terminal::One, Terminal::Eof];
-    let res = lr_parse_input(&input_stream);
+    let parse_tree = lr_parse_input(&input_stream);
 
-    assert!(res.is_ok(), "{:?}", &res);
+    let expected = NonTerminal::E(Box::new(NonTermKind::Add(
+        NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::One)))),
+        NonTerminal::B(Terminal::One),
+    )));
+
+    assert_eq!(parse_tree, Ok(expected));
 }

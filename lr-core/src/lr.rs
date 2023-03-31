@@ -128,7 +128,7 @@ impl LrTableGenerator for Lr1 {
 }
 
 fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
-    let eof_token_ref = grammar_table.eof_token();
+    let eof_token_ref = grammar_table.eof_token_ref();
 
     grammar_table
         .rules()
@@ -197,10 +197,13 @@ fn build_follow_set<'a>(
 ) -> SymbolTokenSet<'a> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let eof_terminal_ref = grammar_table.eof_token_ref();
+    let eof_terminal = tokens[eof_terminal_ref.as_usize()];
+
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), BuiltinTokens::Eof);
+    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), eof_terminal);
 
     let mut changed = true;
     while changed {
@@ -880,6 +883,9 @@ fn build_table<'a>(
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable, TableGenError> {
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let eof_terminal_ref = grammar_table.eof_token_ref();
+    let eof_terminal = tokens[eof_terminal_ref.as_usize()];
+
     let mut goto_table: Vec<Vec<Goto>> =
         vec![vec![Goto::default(); canonical_collection.states()]; grammar_table.symbols().count()];
     let mut action_table: Vec<Vec<Action>> =
@@ -901,9 +907,8 @@ fn build_table<'a>(
 
             let is_goal = Some(i.production.lhs)
                 == grammar_table.symbol_mapping(&Symbol::from(BuiltinSymbols::Goal));
-            let is_goal_acceptor = is_goal
-                && symbol_after_dot.is_none()
-                && (*lookahead_token == Token::from(BuiltinTokens::Eof));
+            let is_goal_acceptor =
+                is_goal && symbol_after_dot.is_none() && (*lookahead_token == eof_terminal);
 
             // if not the last symbol and it's a token, setup a shift.
             if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
@@ -918,10 +923,7 @@ fn build_table<'a>(
 
             // if it's the start action, accept
             if is_goal_acceptor {
-                // safe to unwrap, Eof builtin is guaranteed to exist.
-                let a = grammar_table
-                    .token_mapping(&Token::from(BuiltinTokens::Eof))
-                    .unwrap();
+                let a = eof_terminal_ref;
 
                 // Safe to assign without checks due all indexes being derived from known states.
                 action_table[a.as_usize()][x] = Action::Accept;
@@ -1113,9 +1115,7 @@ mod tests {
         let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_rule = grammar_table.rules().next().unwrap();
-        let eof = grammar_table
-            .token_mapping(&Token::from(BuiltinTokens::Eof))
-            .unwrap();
+        let eof = grammar_table.eof_token_ref();
 
         let s0 = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
         let closure_res = closure(&grammar_table, s0);

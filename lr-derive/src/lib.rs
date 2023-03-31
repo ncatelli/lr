@@ -269,12 +269,13 @@ fn generate_grammer_table_from_annotated_enum(
         define_rule_mut, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
     };
 
+    let eof_terminal = "Terminal::Eof";
     let mut grammar_table = DefaultInitializedGrammarTableSansBuiltins::initialize_table();
+    let _ = grammar_table.declare_eof_token(eof_terminal);
+
     let mut goal = None;
     let mut rules = vec![];
     let mut reducers = vec![];
-
-    let _ = grammar_table.declare_eof_token("Terminal::Eof");
 
     for production in &grammar_variants.variant_metadata {
         let attr_metadata = &production.attr_metadata;
@@ -505,7 +506,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
             .iter()
             .zip(rhs_lens)
             .enumerate()
-            .map(|(production, (reducer, rhs_len))| (production + 1, reducer, *rhs_len));
+            .map(|(production, (reducer, rhs_len))| (production, reducer, *rhs_len));
 
         let reducer_variants = reducers
             .map(|(production, reducer, rhs_len)| match reducer {
@@ -818,10 +819,6 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         generate_table_from_grammar(GeneratorKind::Lr1, &reducible_grammar_table.grammar_table)
             .unwrap();
 
-    println!(
-        "{:?}",
-        lr_table.human_readable_format(&reducible_grammar_table.grammar_table)
-    );
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
     let term_ident = reducible_grammar_table

@@ -248,7 +248,7 @@ pub struct GrammarTable {
     tokens: HashMap<String, usize>,
     rules: Vec<RuleRef>,
 
-    eof_token: Option<TokenRef>,
+    eof_token_ref: Option<TokenRef>,
 }
 
 impl GrammarTable {
@@ -288,13 +288,13 @@ impl GrammarTable {
         let repr = token.as_ref();
 
         let token_id = self.add_token_mut(repr);
-        self.eof_token = Some(TokenRef(token_id));
+        self.eof_token_ref = Some(TokenRef(token_id));
 
         Ok(token_id)
     }
 
-    pub fn eof_token(&self) -> TokenRef {
-        match self.eof_token {
+    pub fn eof_token_ref(&self) -> TokenRef {
+        match self.eof_token_ref {
             Some(eof_tok) => eof_tok,
             None => self.builtin_token_mapping(&BuiltinTokens::Eof),
         }
