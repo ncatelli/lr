@@ -104,7 +104,7 @@ pub enum NonTerminal {
 }
 
 fn main() {
-    let input = "1 + 1";
+    let input = "1 + 0";
     let tokenizer = token_stream_from_input(input)
         .unwrap()
         .map(|token| token.to_variant())
@@ -117,7 +117,7 @@ fn main() {
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
         NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::One)))),
-        NonTerminal::B(Terminal::One),
+        NonTerminal::B(Terminal::Zero),
     )));
 
     assert_eq!(parse_tree, Ok(expected));
