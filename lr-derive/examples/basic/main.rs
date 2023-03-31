@@ -104,7 +104,15 @@ pub enum NonTerminal {
 }
 
 fn main() {
-    let input_stream = [Terminal::One, Terminal::Plus, Terminal::One, Terminal::Eof];
+    let input = "1 + 1";
+    let tokenizer = token_stream_from_input(input)
+        .unwrap()
+        .map(|token| token.to_variant())
+        .take_while(|token| !matches!(&token, &Terminal::Eof))
+        // append a single eof.
+        .chain([Terminal::Eof].into_iter());
+
+    let input_stream = tokenizer.collect::<Vec<_>>();
     let parse_tree = lr_parse_input(&input_stream);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
