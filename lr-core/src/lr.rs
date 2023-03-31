@@ -128,7 +128,8 @@ impl LrTableGenerator for Lr1 {
 }
 
 fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
-    let eof_token_ref = grammar_table.builtin_token_mapping(&BuiltinTokens::Eof);
+    let eof_token_ref = grammar_table.eof_token_ref();
+
     grammar_table
         .rules()
         .take(1)
@@ -196,10 +197,13 @@ fn build_follow_set<'a>(
 ) -> SymbolTokenSet<'a> {
     let symbols = grammar_table.symbols().collect::<Vec<_>>();
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let eof_terminal_ref = grammar_table.eof_token_ref();
+    let eof_terminal = tokens[eof_terminal_ref.as_usize()];
+
     let mut follow_set = SymbolTokenSet::new(&symbols);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), BuiltinTokens::Eof);
+    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), eof_terminal);
 
     let mut changed = true;
     while changed {
@@ -678,15 +682,67 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     collection
 }
 
+/// A wrapper type for annotating a rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateId(usize);
+
+impl StateId {
+    /// Instantiates a new [StateId] from a reference id.
+    ///
+    /// # Safety
+    ///
+    /// Caller guarantees that the id usize corresponds to a valid state in
+    /// the parse table.
+    pub fn unchecked_new(id: usize) -> Self {
+        StateId(id)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<StateId> for usize {
+    fn from(value: StateId) -> Self {
+        value.as_usize()
+    }
+}
+
+/// A wrapper type for annotating a rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuleId(usize);
+
+impl RuleId {
+    /// Instantiates a new [RuleId] from a reference id.
+    ///
+    /// # Safety
+    ///
+    /// Caller guarantees that the id usize corresponds to a valid rule id in
+    /// the corresponding grammar.
+    pub fn unchecked_new(id: usize) -> Self {
+        RuleId(id)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<RuleId> for usize {
+    fn from(value: RuleId) -> Self {
+        value.as_usize()
+    }
+}
+
 /// Represents one of 4 valid actions for the action table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Action {
+pub enum Action {
     /// The goal state has been reached and a parse can be accepted.
     Accept,
     /// Shift the input on to the token stream.
-    Shift(usize),
+    Shift(StateId),
     /// Reduce the rule to a previous state and type.
-    Reduce(usize),
+    Reduce(RuleId),
     /// No further actions for the parse.
     DeadState,
 }
@@ -698,7 +754,7 @@ impl Default for Action {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Goto {
+pub enum Goto {
     State(usize),
     DeadState,
 }
@@ -710,10 +766,10 @@ impl Default for Goto {
 }
 
 #[derive(Debug)]
-pub(crate) struct LrTable {
-    states: usize,
-    goto: Vec<Vec<Goto>>,
-    action: Vec<Vec<Action>>,
+pub struct LrTable {
+    pub states: usize,
+    pub goto: Vec<Vec<Goto>>,
+    pub action: Vec<Vec<Action>>,
 }
 
 impl LrTable {
@@ -727,7 +783,7 @@ impl LrTable {
 
     /// Outputs a human-readable representation of the grammar table.
     #[allow(unused)]
-    fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+    pub fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
         const DEAD_STATE_STR: &str = " ";
 
         let left_side_padding = 8;
@@ -772,9 +828,11 @@ impl LrTable {
                     col.get(curr_state)
                         .map(|a| match a {
                             Action::Accept => format!("{: >10}", "accept"),
-                            Action::Shift(id) => format!("{: >10}", format!("s{}", id)),
+                            Action::Shift(id) => format!("{: >10}", format!("s{}", id.as_usize())),
                             // rules are 1-indexed, when pretty printed
-                            Action::Reduce(id) => format!("{: >10}", format!("r{}", id + 1)),
+                            Action::Reduce(id) => {
+                                format!("{: >10}", format!("r{}", id.as_usize() + 1))
+                            }
                             Action::DeadState => format!("{: >10}", DEAD_STATE_STR),
                         })
                         .unwrap_or_else(|| format!("{: >10}", ""))
@@ -825,6 +883,9 @@ fn build_table<'a>(
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable, TableGenError> {
     let tokens = grammar_table.tokens().collect::<Vec<_>>();
+    let eof_terminal_ref = grammar_table.eof_token_ref();
+    let eof_terminal = tokens[eof_terminal_ref.as_usize()];
+
     let mut goto_table: Vec<Vec<Goto>> =
         vec![vec![Goto::default(); canonical_collection.states()]; grammar_table.symbols().count()];
     let mut action_table: Vec<Vec<Action>> =
@@ -846,9 +907,8 @@ fn build_table<'a>(
 
             let is_goal = Some(i.production.lhs)
                 == grammar_table.symbol_mapping(&Symbol::from(BuiltinSymbols::Goal));
-            let is_goal_acceptor = is_goal
-                && symbol_after_dot.is_none()
-                && (*lookahead_token == Token::from(BuiltinTokens::Eof));
+            let is_goal_acceptor =
+                is_goal && symbol_after_dot.is_none() && (*lookahead_token == eof_terminal);
 
             // if not the last symbol and it's a token, setup a shift.
             if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
@@ -856,17 +916,14 @@ fn build_table<'a>(
                 let k = canonical_collection.id_from_set(&sk);
 
                 if let Some(k) = k {
-                    action_table[a.as_usize()][x] = Action::Shift(k);
+                    action_table[a.as_usize()][x] = Action::Shift(StateId::unchecked_new(k));
                     continue;
                 }
             }
 
             // if it's the start action, accept
             if is_goal_acceptor {
-                // safe to unwrap, Eof builtin is guaranteed to exist.
-                let a = grammar_table
-                    .token_mapping(&Token::from(BuiltinTokens::Eof))
-                    .unwrap();
+                let a = eof_terminal_ref;
 
                 // Safe to assign without checks due all indexes being derived from known states.
                 action_table[a.as_usize()][x] = Action::Accept;
@@ -888,7 +945,7 @@ fn build_table<'a>(
                     .position(|rule| rule == &production_from_stack);
 
                 if let Some(rule_id) = rule_id {
-                    action_table[a.as_usize()][x] = Action::Reduce(rule_id);
+                    action_table[a.as_usize()][x] = Action::Reduce(RuleId::unchecked_new(rule_id));
                 };
             }
         }
@@ -985,10 +1042,7 @@ mod tests {
 <T> ::= <T> + 0
 ";
 
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1023,12 +1077,7 @@ mod tests {
     #[test]
     fn follow_set_returns_expected_values() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let nullable_terms = find_nullable_nonterminals(&grammar_table);
         let first_sets = build_first_set(&grammar_table, &nullable_terms);
@@ -1063,17 +1112,10 @@ mod tests {
     #[test]
     fn closure_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_rule = grammar_table.rules().next().unwrap();
-        let eof = grammar_table
-            .token_mapping(&Token::from(BuiltinTokens::Eof))
-            .unwrap();
+        let eof = grammar_table.eof_token_ref();
 
         let s0 = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
         let closure_res = closure(&grammar_table, s0);
@@ -1116,9 +1158,6 @@ mod tests {
 <F> ::= n";
         let grammar_table = load_grammar(grammar);
 
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
         let grammar_table = grammar_table.unwrap();
 
         let s0 = initial_item_set(&grammar_table);
@@ -1132,12 +1171,7 @@ mod tests {
     #[test]
     fn goto_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_item_set = initial_item_set(&grammar_table);
         let s0 = closure(&grammar_table, initial_item_set);
@@ -1166,11 +1200,7 @@ mod tests {
     #[test]
     fn collection_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        assert!(grammar_table.is_ok());
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let initial_item_set = initial_item_set(&grammar_table);
         let s0 = closure(&grammar_table, initial_item_set);
@@ -1225,11 +1255,7 @@ mod tests {
 <T> ::= <F> * <T>
 <T> ::= <F>
 <F> ::= n";
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        assert!(grammar_table.is_ok());
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let collection = build_canonical_collection(&grammar_table);
         assert_eq!(
@@ -1249,28 +1275,5 @@ mod tests {
         for ((sid, items_in_state), expected_items) in state_rules_assertion_tuples {
             assert_eq!((sid, items_in_state), (sid, expected_items))
         }
-    }
-
-    #[test]
-    fn should_build_expected_table_from_grammar() {
-        let grammar = "
-<E> ::= <T> - <E>
-<E> ::= <T>
-<T> ::= <F> * <T>
-<T> ::= <F>
-<F> ::= 1";
-        let grammar_table = load_grammar(grammar);
-
-        // safe to unwrap with assertion.
-        assert!(grammar_table.is_ok());
-        let grammar_table = grammar_table.unwrap();
-
-        let collection = build_canonical_collection(&grammar_table);
-        let build_table_res = build_table(&grammar_table, &collection);
-
-        assert!(build_table_res.is_ok());
-        let table = build_table_res.unwrap();
-
-        println!("{}", table.human_readable_format(&grammar_table))
     }
 }

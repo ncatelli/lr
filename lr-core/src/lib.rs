@@ -1,7 +1,7 @@
 use grammar::GrammarLoadError;
 
-mod grammar;
-mod lr;
+pub mod grammar;
+pub mod lr;
 
 /// Represents the kind of table that can be generated
 pub enum GeneratorKind {
@@ -54,8 +54,17 @@ impl std::fmt::Display for Error {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalOrNonTerminal<T, NT> {
+    Terminal(T),
+    NonTerminal(NT),
+}
+
 #[allow(unused)]
-fn generate_table<G: AsRef<str>>(kind: GeneratorKind, grammar: G) -> Result<lr::LrTable, Error> {
+pub fn generate_table_from_ruleset<G: AsRef<str>>(
+    kind: GeneratorKind,
+    grammar: G,
+) -> Result<lr::LrTable, Error> {
     use grammar::load_grammar;
 
     let grammar = grammar.as_ref();
@@ -67,6 +76,21 @@ fn generate_table<G: AsRef<str>>(kind: GeneratorKind, grammar: G) -> Result<lr::
             use crate::lr::LrTableGenerator;
 
             crate::lr::Lr1::generate_table(&grammar_table)
+                .map_err(|e| Error::new(ErrorKind::TableGenerationError(e)))
+        }
+    }
+}
+
+#[allow(unused)]
+pub fn generate_table_from_grammar(
+    kind: GeneratorKind,
+    grammar_table: &grammar::GrammarTable,
+) -> Result<lr::LrTable, Error> {
+    match kind {
+        GeneratorKind::Lr1 => {
+            use crate::lr::LrTableGenerator;
+
+            crate::lr::Lr1::generate_table(grammar_table)
                 .map_err(|e| Error::new(ErrorKind::TableGenerationError(e)))
         }
     }

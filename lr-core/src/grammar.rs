@@ -14,14 +14,14 @@ impl BuiltinSymbols {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinTokens {
+pub enum BuiltinTokens {
     Epsilon,
     Eof,
     EndL,
 }
 
 impl BuiltinTokens {
-    pub(crate) fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
+    pub fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
         let val = token_str.as_ref();
         [Self::Epsilon, Self::Eof, Self::EndL]
             .iter()
@@ -39,7 +39,7 @@ impl BuiltinTokens {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrToken<'a> {
+pub enum SymbolOrToken<'a> {
     Symbol(Symbol<'a>),
     Token(Token<'a>),
 }
@@ -55,7 +55,7 @@ impl<'a> std::fmt::Display for SymbolOrToken<'a> {
 
 /// A wrapper type for symbols that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SymbolRef(usize);
+pub struct SymbolRef(usize);
 
 impl SymbolRef {
     pub(crate) fn new(symbol: usize) -> Self {
@@ -84,7 +84,7 @@ impl std::fmt::Display for SymbolRef {
 
 /// A wrapper type for tokens that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TokenRef(usize);
+pub struct TokenRef(usize);
 
 impl TokenRef {
     pub(crate) fn new(token: usize) -> Self {
@@ -112,7 +112,7 @@ impl std::fmt::Display for TokenRef {
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SymbolOrTokenRef {
+pub enum SymbolOrTokenRef {
     Symbol(SymbolRef),
     Token(TokenRef),
 }
@@ -127,7 +127,7 @@ impl std::fmt::Display for SymbolOrTokenRef {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
-pub(crate) struct RuleRef {
+pub struct RuleRef {
     pub lhs: SymbolRef,
     pub rhs: Vec<SymbolOrTokenRef>,
 }
@@ -155,6 +155,10 @@ impl RuleRef {
 
         !(self.rhs.is_empty() || is_non_terminal_rule)
     }
+
+    pub fn rhs_len(&self) -> usize {
+        self.rhs.len()
+    }
 }
 
 impl std::fmt::Display for RuleRef {
@@ -173,7 +177,7 @@ impl std::fmt::Display for RuleRef {
 
 /// A wrapper type for symbols borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Symbol<'a>(&'a str);
+pub struct Symbol<'a>(&'a str);
 
 impl<'a> Symbol<'a> {
     pub(crate) fn new(symbol: &'a str) -> Self {
@@ -206,7 +210,7 @@ impl<'a> From<&'a str> for Symbol<'a> {
 
 /// A wrapper type for tokens borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Token<'a>(&'a str);
+pub struct Token<'a>(&'a str);
 
 impl<'a> Token<'a> {
     pub(crate) fn new(token: &'a str) -> Self {
@@ -239,10 +243,12 @@ impl<'a> std::fmt::Display for Token<'a> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub(crate) struct GrammarTable {
+pub struct GrammarTable {
     symbols: HashMap<String, usize>,
     tokens: HashMap<String, usize>,
     rules: Vec<RuleRef>,
+
+    eof_token_ref: Option<TokenRef>,
 }
 
 impl GrammarTable {
@@ -275,11 +281,30 @@ impl GrammarTable {
         self.rules.push(rule);
     }
 
-    pub(crate) fn symbols(&self) -> SymbolIterator {
+    pub fn declare_eof_token<S: AsRef<str>>(
+        &mut self,
+        token: S,
+    ) -> Result<usize, GrammarLoadError> {
+        let repr = token.as_ref();
+
+        let token_id = self.add_token_mut(repr);
+        self.eof_token_ref = Some(TokenRef(token_id));
+
+        Ok(token_id)
+    }
+
+    pub fn eof_token_ref(&self) -> TokenRef {
+        match self.eof_token_ref {
+            Some(eof_tok) => eof_tok,
+            None => self.builtin_token_mapping(&BuiltinTokens::Eof),
+        }
+    }
+
+    pub fn symbols(&self) -> SymbolIterator {
         SymbolIterator::new(self)
     }
 
-    pub(crate) fn tokens(&self) -> TokenIterator {
+    pub fn tokens(&self) -> TokenIterator {
         TokenIterator::new(self)
     }
 
@@ -300,7 +325,7 @@ impl GrammarTable {
             .unwrap()
     }
 
-    pub(crate) fn rules(&self) -> impl Iterator<Item = &RuleRef> {
+    pub fn rules(&self) -> impl Iterator<Item = &RuleRef> {
         self.rules.iter()
     }
 }
@@ -338,8 +363,80 @@ impl std::fmt::Display for GrammarTable {
     }
 }
 
+/// Provides methods for initializing a [GrammarTable] with expected terms.
+pub trait GrammarInitializer {
+    fn initialize_table() -> GrammarTable;
+}
+
+/// Defines a [GrammarTable] builder that includes a Goal symbol.
+pub struct DefaultInitializedGrammarTableSansBuiltins;
+
+impl DefaultInitializedGrammarTableSansBuiltins {
+    const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
+}
+
+impl GrammarInitializer for DefaultInitializedGrammarTableSansBuiltins {
+    fn initialize_table() -> GrammarTable {
+        let mut grammar_table = GrammarTable::default();
+
+        for builtin_symbol in Self::DEFAULT_SYMBOLS {
+            grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
+        }
+
+        grammar_table
+    }
+}
+
+/// Defines a [GrammarTable] builder that includes a Goal symbol and common
+/// tokens.
+pub struct DefaultInitializedGrammarTableBuilder;
+
+impl DefaultInitializedGrammarTableBuilder {
+    const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
+    const DEFAULT_TOKENS: [BuiltinTokens; 3] = [
+        BuiltinTokens::Epsilon,
+        BuiltinTokens::Eof,
+        BuiltinTokens::EndL,
+    ];
+}
+
+impl GrammarInitializer for DefaultInitializedGrammarTableBuilder {
+    fn initialize_table() -> GrammarTable {
+        let mut grammar_table = GrammarTable::default();
+
+        for builtin_symbol in Self::DEFAULT_SYMBOLS {
+            grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
+        }
+
+        // add default tokens
+        for builtin_token in Self::DEFAULT_TOKENS {
+            let symbol_string_repr = builtin_token.as_token().to_string();
+            grammar_table.add_token_mut(symbol_string_repr);
+        }
+
+        grammar_table
+    }
+}
+
+/// Defines a [GrammarTable] builder that includes a Goal symbol, Goal rule
+/// and common tokens.
+pub struct DefaultInitializedWithGoalProductionGrammarTableBuilder;
+
+impl GrammarInitializer for DefaultInitializedWithGoalProductionGrammarTableBuilder {
+    fn initialize_table() -> GrammarTable {
+        let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
+
+        // initial table
+        let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
+        let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
+        grammar_table.add_rule_mut(root_rule);
+
+        grammar_table
+    }
+}
+
 /// An ordered iterator over all symbols in a grammar table.
-pub(crate) struct SymbolIterator<'a> {
+pub struct SymbolIterator<'a> {
     symbols: Vec<&'a str>,
 }
 
@@ -368,7 +465,7 @@ impl<'a> Iterator for SymbolIterator<'a> {
 }
 
 /// An ordered iterator over all tokens in a grammar table.
-pub(crate) struct TokenIterator<'a> {
+pub struct TokenIterator<'a> {
     tokens: Vec<&'a str>,
 }
 
@@ -401,6 +498,7 @@ pub enum GrammarLoadErrorKind {
     NoTerminalProduction,
     InvalidRule,
     ConflictingRule,
+    InvalidToken,
 }
 
 impl std::fmt::Display for GrammarLoadErrorKind {
@@ -411,6 +509,7 @@ impl std::fmt::Display for GrammarLoadErrorKind {
             }
             Self::InvalidRule => write!(f, "provided rule is invalid",),
             Self::ConflictingRule => write!(f, "provided rule conflicts with existing rule",),
+            Self::InvalidToken => write!(f, "provided token is not registered with grammer"),
         }
     }
 }
@@ -445,26 +544,84 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
-    let mut grammar_table = GrammarTable::default();
+pub fn define_rule_mut<S: AsRef<str>>(
+    grammar_table: &mut GrammarTable,
+    line: S,
+) -> Result<(), GrammarLoadError> {
+    let trimmed_line = line.as_ref().trim();
 
-    // initial table
-    let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
-    let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
-    grammar_table.add_rule_mut(root_rule);
-    grammar_table.add_symbol_mut(BuiltinSymbols::Goal.as_symbol());
-
-    // add default tokens
-    let builtin_tokens = [
-        BuiltinTokens::Epsilon,
-        BuiltinTokens::Eof,
-        BuiltinTokens::EndL,
-    ];
-
-    for builtin_tokens in builtin_tokens {
-        let symbol_string_repr = builtin_tokens.as_token().to_string();
-        grammar_table.add_token_mut(symbol_string_repr);
+    // validate the start of the line is a symbol
+    if !trimmed_line.starts_with('<') {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data("doesn't start with symbol".to_string()));
     }
+
+    // split the line at the assignment delimiter
+    let mut split_line = trimmed_line.split("::=").collect::<Vec<_>>();
+    if split_line.len() != 2 {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data("does not contain right-hand side".to_string()));
+    }
+
+    // safe to assume this will have a value from above checks.
+    let rhs = split_line
+        .pop()
+        .map(|rhs| rhs.trim())
+        // break each rhs predicate up by whitespace
+        .map(|str| str.split_whitespace())
+        .unwrap();
+    let lhs = split_line.pop().map(|lhs| lhs.trim()).unwrap();
+
+    // retrieve the LHS symbol.
+    let lhs_symbol = symbol_value_from_str(lhs).ok_or_else(|| {
+        GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data("doesn't start with symbol".to_string())
+    })?;
+
+    let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
+    let rule_ref = SymbolRef::from(rule_id);
+    let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
+
+    // add tokens and fill the rule.
+    for elem in rhs {
+        if let Some(symbol) = symbol_value_from_str(elem) {
+            let symbol_id = {
+                let symbol_id = grammar_table.add_symbol_mut(symbol);
+                let symbol_ref = SymbolRef::new(symbol_id);
+
+                SymbolOrTokenRef::Symbol(symbol_ref)
+            };
+            rule.rhs.push(symbol_id);
+        // validate all token values are single length.
+        } else if let Some(token) = token_value_from_str(elem) {
+            let token_id = {
+                let token_id = grammar_table.add_token_mut(token);
+                let token_ref = TokenRef::from(token_id);
+
+                SymbolOrTokenRef::Token(token_ref)
+            };
+            rule.rhs.push(token_id);
+        } else {
+            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+                .with_data(format!("invalid rhs value ({})", elem)));
+        }
+    }
+
+    if grammar_table.rules.contains(&rule) {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
+            .with_data(format!("{} ", &rule)));
+    } else if !rule.is_valid() {
+        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
+            .with_data(format!("{} ", &rule)));
+    } else {
+        grammar_table.add_rule_mut(rule);
+        Ok(())
+    }
+}
+
+pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
+    let mut grammar_table =
+        DefaultInitializedWithGoalProductionGrammarTableBuilder::initialize_table();
 
     // breakup input into enumerated lines.
     let lines = input
@@ -480,78 +637,13 @@ pub(crate) fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, Gram
         .filter(|(_, line)| !line.chars().all(|c| c.is_whitespace()));
 
     for (lineno, line) in lines_containing_rules {
-        let trimmed_line = line.trim();
-
-        // validate the start of the line is a symbol
-        if !trimmed_line.starts_with('<') {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: doesn't start with symbol", lineno)));
-        }
-
-        // split the line at the assignment delimiter
-        let mut split_line = trimmed_line.split("::=").collect::<Vec<_>>();
-        if split_line.len() != 2 {
-            return Err(
-                GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule).with_data(format!(
-                    "lineno {}: does not contain right-hand side",
-                    lineno
-                )),
-            );
-        }
-
-        // safe to assume this will have a value from above checks.
-        let rhs = split_line
-            .pop()
-            .map(|rhs| rhs.trim())
-            // break each rhs predicate up by whitespace
-            .map(|str| str.split_whitespace())
-            .unwrap();
-        let lhs = split_line.pop().map(|lhs| lhs.trim()).unwrap();
-
-        // retrieve the LHS symbol.
-        let lhs_symbol = symbol_value_from_str(lhs).ok_or_else(|| {
-            GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: doesn't start with symbol", lineno))
-        })?;
-
-        let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
-        let rule_ref = SymbolRef::from(rule_id);
-        let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
-
-        // add tokens and fill the rule.
-        for elem in rhs {
-            if let Some(symbol) = symbol_value_from_str(elem) {
-                let symbol_id = {
-                    let symbol_id = grammar_table.add_symbol_mut(symbol);
-                    let symbol_ref = SymbolRef::new(symbol_id);
-
-                    SymbolOrTokenRef::Symbol(symbol_ref)
-                };
-                rule.rhs.push(symbol_id);
-            // validate all token values are single length.
-            } else if let Some(token) = token_value_from_str(elem) {
-                let token_id = {
-                    let token_id = grammar_table.add_token_mut(token);
-                    let token_ref = TokenRef::from(token_id);
-
-                    SymbolOrTokenRef::Token(token_ref)
-                };
-                rule.rhs.push(token_id);
-            } else {
-                return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                    .with_data(format!("lineno {}: invalid rhs value ({})", lineno, elem)));
+        define_rule_mut(&mut grammar_table, line).map_err(|e| match e.data {
+            Some(data) => {
+                let line_annotated_data = format!("lineno {}: {}", lineno, data);
+                GrammarLoadError::new(e.kind).with_data(line_annotated_data)
             }
-        }
-
-        if grammar_table.rules.contains(&rule) {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
-                .with_data(format!("lineno {}: {} ", lineno, &rule)));
-        } else if !rule.is_valid() {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("lineno {}: {} ", lineno, &rule)));
-        } else {
-            grammar_table.add_rule_mut(rule)
-        }
+            None => e,
+        })?;
     }
 
     // add the first production to the goal.
@@ -591,14 +683,8 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
 
 fn token_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
-    let value_len = trimmed_value.len();
-    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
 
-    if value_len == 1 || is_builtin {
-        Some(trimmed_value)
-    } else {
-        None
-    }
+    Some(trimmed_value)
 }
 
 #[cfg(test)]
@@ -617,32 +703,12 @@ mod tests {
 
     #[test]
     fn should_parse_table_with_valid_test_grammar() {
-        let grammar_table = load_grammar(TEST_GRAMMAR);
-
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
+        let grammar_table = load_grammar(TEST_GRAMMAR).unwrap();
 
         assert_eq!(2, grammar_table.symbols.len());
         // 3 builtins plus `(` and `)`
         assert_eq!(5, grammar_table.tokens.len());
         assert_eq!(7, grammar_table.rules.len());
-    }
-
-    #[test]
-    fn should_error_on_invalid_rule() {
-        let res = load_grammar(
-            "
-<expr> ::= ( <expr> )
-<expr> ::=  abcd
-        ",
-        );
-
-        assert_eq!(
-            Err(GrammarLoadErrorKind::InvalidRule),
-            res.map_err(|e| e.kind)
-        );
     }
 
     #[test]
@@ -663,16 +729,12 @@ mod tests {
 
     #[test]
     fn should_iterate_symbols_in_order() {
-        let res = load_grammar(
-            "
+        let grammar = "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
 <addition> ::= <expr> + <expr>  
-        ",
-        );
-
-        assert!(res.is_ok());
-        let grammar_table = res.unwrap();
+        ";
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let mut symbol_iter = grammar_table.symbols();
 
@@ -687,16 +749,12 @@ mod tests {
 
     #[test]
     fn should_iterate_tokens_in_order() {
-        let res = load_grammar(
-            "
+        let grammar = "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
 <addition> ::= <expr> + <expr>  
-        ",
-        );
-
-        assert!(res.is_ok());
-        let grammar_table = res.unwrap();
+        ";
+        let grammar_table = load_grammar(grammar).unwrap();
 
         let mut token_iter = grammar_table
             .tokens()
