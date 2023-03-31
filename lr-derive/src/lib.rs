@@ -99,7 +99,7 @@ impl Spanned for GoalAttributeMetadata {
 
         // Attempt to join the two spans or return the rule_span if not
         // possible
-        rule_span.join(action_span).unwrap_or_else(|| rule_span)
+        rule_span.join(action_span).unwrap_or(rule_span)
     }
 }
 
@@ -125,7 +125,7 @@ impl Spanned for RuleAttributeMetadata {
 
         // Attempt to join the two spans or return the rule_span if not
         // possible
-        rule_span.join(action_span).unwrap_or_else(|| rule_span)
+        rule_span.join(action_span).unwrap_or(rule_span)
     }
 }
 
@@ -217,7 +217,7 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Collect all rules for a production variant.
-            if valid_attrs_for_variant.len() >= 1 {
+            if !valid_attrs_for_variant.is_empty() {
                 Ok(ProductionAnnotatedEnumVariant {
                     non_terminal: variant_ident,
                     attr_metadata: valid_attrs_for_variant,
@@ -357,7 +357,7 @@ impl<'a> StateTable<'a> {
         let lookahead_variants = tokens.collect::<Vec<_>>();
         let states = possible_states
             .map(|(state_idx, lookahead_idx, action)| {
-                let lookahead = lookahead_variants[lookahead_idx].clone();
+                let lookahead = lookahead_variants[lookahead_idx];
 
                 ActionVariant::new(state_idx, lookahead, action)
             })
@@ -767,7 +767,7 @@ fn codegen(
         .map(|rule_ref| rule_ref.rhs_len())
         .collect::<Vec<_>>();
     let action_matcher_codegen =
-        ActionMatcherCodeGen::new(terminal_identifier, states_iter, &reducers, &rhs_lens)
+        ActionMatcherCodeGen::new(terminal_identifier, states_iter, reducers, &rhs_lens)
             .into_token_stream();
 
     let parser_ctx = ParserCtxCodeGen::new(terminal_identifier, nonterminal_identifier);
@@ -825,16 +825,14 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .token_ident()
         .map(|t| format_ident!("{}", t))
         .unwrap();
-    let non_terminal_ident = annotated_enum.enum_ident.clone();
+    let non_terminal_ident = annotated_enum.enum_ident;
 
-    let output_stream = codegen(
+    codegen(
         &term_ident,
         &non_terminal_ident,
         &reducible_grammar_table,
         &state_table,
     )
     .unwrap()
-    .into();
-
-    output_stream
+    .into()
 }
