@@ -4,9 +4,9 @@ pub use relex_derive::Relex;
 
 #[derive(Relex, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terminal {
-    #[matches(r"[+]")]
+    #[matches(r"+")]
     Plus,
-    #[matches(r"[*]")]
+    #[matches(r"*")]
     Star,
     #[matches(r"0")]
     Zero,
