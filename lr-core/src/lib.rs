@@ -61,7 +61,7 @@ pub enum TerminalOrNonTerminal<T, NT> {
 }
 
 #[allow(unused)]
-pub fn generate_table_from_ruleset<G: AsRef<str>>(
+pub fn generate_table_from_production_set<G: AsRef<str>>(
     kind: GeneratorKind,
     grammar: G,
 ) -> Result<lr::LrTable, Error> {

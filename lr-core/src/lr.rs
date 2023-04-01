@@ -5,14 +5,14 @@ use crate::grammar::*;
 /// Markers for the type of error encountered in table generation.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TableGenErrorKind {
-    /// A token that did not match the grammar has been encounter.
-    UnknownToken,
+    /// A terminal that did not match the grammar has been encounter.
+    UnknownTerminal,
 }
 
 impl std::fmt::Display for TableGenErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnknownToken => write!(f, "token is undefined"),
+            Self::UnknownTerminal => write!(f, "terminal is undefined"),
         }
     }
 }
@@ -53,40 +53,41 @@ pub(crate) trait LrTableGenerator {
     fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError>;
 }
 
+/// A mapping of non-terminal symbols to their corresponding terminal symbols.
 #[derive(Debug, PartialEq)]
-struct SymbolTokenSet<'a> {
-    sets: HashMap<Symbol<'a>, HashSet<Token<'a>>>,
+struct SymbolSet<'a> {
+    sets: HashMap<NonTerminal<'a>, HashSet<Terminal<'a>>>,
 }
 
-impl<'a> SymbolTokenSet<'a> {
-    fn new<S: AsRef<[Symbol<'a>]>>(symbols: S) -> Self {
-        let sets = symbols
+impl<'a> SymbolSet<'a> {
+    fn new<NT: AsRef<[NonTerminal<'a>]>>(non_terminals: NT) -> Self {
+        let sets = non_terminals
             .as_ref()
             .iter()
-            .fold(HashMap::new(), |mut acc, &symbol| {
-                acc.insert(symbol, HashSet::new());
+            .fold(HashMap::new(), |mut acc, &non_terminal| {
+                acc.insert(non_terminal, HashSet::new());
                 acc
             });
         Self { sets }
     }
 
-    /// Inserts a token into a symbol's set returning true if it already exists.
-    fn insert<T: Into<Token<'a>>>(&mut self, key: Symbol<'a>, token: T) -> bool {
+    /// Inserts a terminal into a non-terminals's set returning true if it already exists.
+    fn insert<T: Into<Terminal<'a>>>(&mut self, key: NonTerminal<'a>, terminal: T) -> bool {
         self.sets
             .get_mut(&key)
-            .map(|token_set| token_set.insert(token.into()))
+            .map(|terminal_set| terminal_set.insert(terminal.into()))
             .unwrap_or(false)
     }
 
-    /// Sets the tokens for `lhs` to the union of `lhs` and `rhs`.
-    fn union_of_sets(&mut self, lhs: Symbol<'a>, rhs: &Symbol<'a>) -> bool {
+    /// Sets the terminals for `lhs` to the union of `lhs` and `rhs`.
+    fn union_of_sets(&mut self, lhs: NonTerminal<'a>, rhs: &NonTerminal<'a>) -> bool {
         let mut changed = false;
 
-        // get all terminals from the rhs symbol
-        let first_tokens_from_rhs_symbol = self.sets.get(rhs).cloned().unwrap_or_default();
-        self.sets.entry(lhs).and_modify(|token_set| {
-            for token in first_tokens_from_rhs_symbol {
-                changed = token_set.insert(token);
+        // get all terminals from the rhs non-terminal
+        let first_terminal_from_rhs_non_terminal = self.sets.get(rhs).cloned().unwrap_or_default();
+        self.sets.entry(lhs).and_modify(|terminal_set| {
+            for terminal in first_terminal_from_rhs_non_terminal {
+                changed = terminal_set.insert(terminal);
             }
         });
 
@@ -94,15 +95,18 @@ impl<'a> SymbolTokenSet<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
+impl<'a> std::fmt::Display for SymbolSet<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let lines = self
             .sets
             .iter()
-            .map(|(symbol, toks)| {
-                let rhs = toks.iter().map(|tok| tok.to_string()).collect::<Vec<_>>();
+            .map(|(non_terminal, terminals)| {
+                let rhs = terminals
+                    .iter()
+                    .map(|term| term.to_string())
+                    .collect::<Vec<_>>();
 
-                format!("{}: {}", symbol.as_ref(), rhs.join(", "))
+                format!("{}: {}", non_terminal.as_ref(), rhs.join(", "))
             })
             .collect::<Vec<_>>();
 
@@ -110,8 +114,8 @@ impl<'a> std::fmt::Display for SymbolTokenSet<'a> {
     }
 }
 
-impl<'a> AsRef<HashMap<Symbol<'a>, HashSet<Token<'a>>>> for SymbolTokenSet<'a> {
-    fn as_ref(&self) -> &HashMap<Symbol<'a>, HashSet<Token<'a>>> {
+impl<'a> AsRef<HashMap<NonTerminal<'a>, HashSet<Terminal<'a>>>> for SymbolSet<'a> {
+    fn as_ref(&self) -> &HashMap<NonTerminal<'a>, HashSet<Terminal<'a>>> {
         &self.sets
     }
 }
@@ -128,60 +132,61 @@ impl LrTableGenerator for Lr1 {
 }
 
 fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
-    let eof_token_ref = grammar_table.eof_token_ref();
+    let eof_terminal_ref = grammar_table.eof_terminal_ref();
 
     grammar_table
-        .rules()
+        .productions()
         .take(1)
-        .map(|first_rule| ItemRef::new(first_rule, 0, eof_token_ref))
+        .map(|first_production| ItemRef::new(first_production, 0, eof_terminal_ref))
         .collect::<ItemSet>()
 }
 
 fn build_first_set<'a>(
     grammar_table: &'a GrammarTable,
-    nullable_nonterminals: &HashSet<Symbol<'a>>,
-) -> SymbolTokenSet<'a> {
-    let symbols = grammar_table.symbols().collect::<Vec<_>>();
-    let tokens = grammar_table.tokens().collect::<Vec<_>>();
-    let mut first_set = SymbolTokenSet::new(&symbols);
+    nullable_nonterminals: &HashSet<NonTerminal<'a>>,
+) -> SymbolSet<'a> {
+    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
+    let terminals = grammar_table.terminals().collect::<Vec<_>>();
+    let mut first_set = SymbolSet::new(&non_terminals);
 
     // map nullable nonterminals to epsilon
-    for symbol in nullable_nonterminals {
-        first_set.insert(*symbol, BuiltinTokens::Epsilon);
+    for non_terminals in nullable_nonterminals {
+        first_set.insert(*non_terminals, BuiltinTerminals::Epsilon);
     }
 
-    // set the initial token for each production
-    let initial_tokens_of_productions = grammar_table.rules().filter_map(|rule_ref| {
-        let lhs_idx = rule_ref.lhs;
-        let lhs_symbol = symbols[lhs_idx.as_usize()];
+    // set the initial terminal for each production
+    let initial_terminals_of_productions =
+        grammar_table.productions().filter_map(|production_ref| {
+            let lhs_idx = production_ref.lhs;
+            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
 
-        if let Some(SymbolOrTokenRef::Token(idx)) = rule_ref.rhs.get(0) {
-            // if the the first token in the pattern isn't epsilon, add it.
-            let first_token = tokens[idx.as_usize()];
-            Some((lhs_symbol, first_token))
-        } else {
-            None
-        }
-    });
+            if let Some(SymbolRef::Terminal(idx)) = production_ref.rhs.get(0) {
+                // if the the first terminal in the pattern isn't epsilon, add it.
+                let first_terminal = terminals[idx.as_usize()];
+                Some((lhs_non_terminal, first_terminal))
+            } else {
+                None
+            }
+        });
 
-    // map initial tokens in each rule to their symbol
-    for (symbol, first_token) in initial_tokens_of_productions {
-        first_set.insert(symbol, first_token);
+    // map initial terminals in each proudction to their non-terminal
+    for (non_terminal, first_terminal) in initial_terminals_of_productions {
+        first_set.insert(non_terminal, first_terminal);
     }
 
     let mut changed = true;
 
     while changed {
         changed = false;
-        // set the initial token for each production
-        for rule_ref in grammar_table.rules() {
-            let lhs_idx = rule_ref.lhs;
-            let lhs_symbol = symbols[lhs_idx.as_usize()];
+        // set the initial terminal for each production
+        for production_ref in grammar_table.productions() {
+            let lhs_idx = production_ref.lhs;
+            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
 
-            if let Some(SymbolOrTokenRef::Symbol(idx)) = rule_ref.rhs.get(0) {
-                // get all terminals from the first symbol
-                let first_rhs_symbol = symbols[idx.as_usize()];
-                if first_set.union_of_sets(lhs_symbol, &first_rhs_symbol) {
+            if let Some(SymbolRef::NonTerminal(idx)) = production_ref.rhs.get(0) {
+                // get all terminals from the first non_terminal
+                let first_rhs_non_terminal = non_terminals[idx.as_usize()];
+                if first_set.union_of_sets(lhs_non_terminal, &first_rhs_non_terminal) {
                     changed = true;
                 }
             }
@@ -193,64 +198,66 @@ fn build_first_set<'a>(
 
 fn build_follow_set<'a>(
     grammar_table: &'a GrammarTable,
-    first_sets: &'a SymbolTokenSet,
-) -> SymbolTokenSet<'a> {
-    let symbols = grammar_table.symbols().collect::<Vec<_>>();
-    let tokens = grammar_table.tokens().collect::<Vec<_>>();
-    let eof_terminal_ref = grammar_table.eof_token_ref();
-    let eof_terminal = tokens[eof_terminal_ref.as_usize()];
+    first_sets: &'a SymbolSet,
+) -> SymbolSet<'a> {
+    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
+    let terminals = grammar_table.terminals().collect::<Vec<_>>();
+    let eof_terminal_ref = grammar_table.eof_terminal_ref();
+    let eof_terminal = terminals[eof_terminal_ref.as_usize()];
 
-    let mut follow_set = SymbolTokenSet::new(&symbols);
+    let mut follow_set = SymbolSet::new(&non_terminals);
 
     // 1) FOLLOW(S) = { $ }   // where S is the starting Non-Terminal
-    follow_set.insert(Symbol::from(BuiltinSymbols::Goal), eof_terminal);
+    follow_set.insert(NonTerminal::from(BuiltinNonTerminals::Goal), eof_terminal);
 
     let mut changed = true;
     while changed {
         changed = false;
 
-        let symbol_and_rules_containing_it =
-            grammar_table.symbols().enumerate().flat_map(|(sid, s)| {
-                grammar_table.rules().filter_map(move |rule| {
-                    if rule
+        let non_terminals_and_productions_containing_it = grammar_table
+            .non_terminals()
+            .enumerate()
+            .flat_map(|(sid, s)| {
+                grammar_table.productions().filter_map(move |production| {
+                    if production
                         .rhs
-                        .contains(&SymbolOrTokenRef::Symbol(SymbolRef::new(sid)))
+                        .contains(&SymbolRef::NonTerminal(NonTerminalRef::new(sid)))
                     {
-                        Some((s, rule))
+                        Some((s, production))
                     } else {
                         None
                     }
                 })
             });
 
-        for (b, rule) in symbol_and_rules_containing_it {
-            let symbol_ref = grammar_table.symbol_mapping(&b).unwrap();
-            let rhs = &rule.rhs;
-            let symbol_pos = rhs
+        for (b, production) in non_terminals_and_productions_containing_it {
+            let non_terminal_ref = grammar_table.non_terminal_mapping(&b).unwrap();
+            let rhs = &production.rhs;
+            let non_terminal_pos = rhs
                 .iter()
-                .position(|sotr| sotr == &SymbolOrTokenRef::Symbol(symbol_ref))
-                // existence in this loop means it exists in the rule.
+                .position(|sotr| sotr == &SymbolRef::NonTerminal(non_terminal_ref))
+                // existence in this loop means it exists in the production.
                 .unwrap();
 
-            let symbol_is_last_in_rhs = symbol_pos == rhs.len().saturating_sub(1);
+            let non_terminal_is_last_in_rhs = non_terminal_pos == rhs.len().saturating_sub(1);
 
             // 2) If A -> pBq is a production, where p, B and q are any grammar symbols,
             //    then everything in FIRST(q)  except Є is in FOLLOW(B).
             // and
             // 4) If A->pBq is a production and FIRST(q) contains Є,
             // then FOLLOW(B) contains { FIRST(q) – Є } U FOLLOW(A)
-            if !symbol_is_last_in_rhs {
-                let q = &rhs[symbol_pos + 1];
-                match q {
-                    SymbolOrTokenRef::Symbol(idx) => {
-                        let q_symbol = symbols[idx.as_usize()];
-                        let q_first_set = first_sets.sets.get(&q_symbol).unwrap();
+            if !non_terminal_is_last_in_rhs {
+                let q_ref = &rhs[non_terminal_pos + 1];
+                match q_ref {
+                    SymbolRef::NonTerminal(idx) => {
+                        let q = non_terminals[idx.as_usize()];
+                        let q_first_set = first_sets.sets.get(&q).unwrap();
                         let contains_epsilon =
-                            q_first_set.contains(&Token::from(BuiltinTokens::Epsilon));
+                            q_first_set.contains(&Terminal::from(BuiltinTerminals::Epsilon));
 
                         let q_first_set_sans_epsilon = q_first_set
                             .iter()
-                            .filter(|&tok| tok != &Token::from(BuiltinTokens::Epsilon));
+                            .filter(|&tok| tok != &Terminal::from(BuiltinTerminals::Epsilon));
 
                         for &t in q_first_set_sans_epsilon {
                             if follow_set.insert(b, t) {
@@ -259,15 +266,15 @@ fn build_follow_set<'a>(
                         }
 
                         if contains_epsilon {
-                            let a = &symbols[rule.lhs.as_usize()];
+                            let a = &non_terminals[production.lhs.as_usize()];
 
                             if follow_set.union_of_sets(b, a) {
                                 changed = true;
                             }
                         }
                     }
-                    SymbolOrTokenRef::Token(idx) => {
-                        let q = tokens[idx.as_usize()];
+                    SymbolRef::Terminal(idx) => {
+                        let q = terminals[idx.as_usize()];
 
                         if follow_set.insert(b, q) {
                             changed = true;
@@ -277,8 +284,8 @@ fn build_follow_set<'a>(
             }
 
             // 3) If A->pB is a production, then everything in FOLLOW(A) is in FOLLOW(B).
-            if symbol_is_last_in_rhs {
-                let a = &symbols[rule.lhs.as_usize()];
+            if non_terminal_is_last_in_rhs {
+                let a = &non_terminals[production.lhs.as_usize()];
 
                 if follow_set.union_of_sets(b, a) {
                     changed = true;
@@ -290,36 +297,38 @@ fn build_follow_set<'a>(
     follow_set
 }
 
-fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<Symbol> {
-    let symbols = grammar_table.symbols().collect::<Vec<_>>();
-    let tokens = grammar_table.tokens().collect::<Vec<_>>();
+fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<NonTerminal> {
+    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
+    let terminals = grammar_table.terminals().collect::<Vec<_>>();
     let mut nullable_nonterminal_productions = HashSet::new();
 
     let mut done = false;
     while !done {
         // assume done unless a change happens.
         done = true;
-        for rule in grammar_table.rules() {
-            let lhs_id = rule.lhs;
-            let lhs = symbols[lhs_id.as_usize()];
+        for production in grammar_table.productions() {
+            let lhs_id = production.lhs;
+            let lhs = non_terminals[lhs_id.as_usize()];
 
             // validate that the production isn't already nullable
             if !nullable_nonterminal_productions.contains(&lhs) {
-                let first_rhs_is_token = rule.rhs.get(0).and_then(|sotr| match sotr {
-                    SymbolOrTokenRef::Symbol(_) => None,
-                    SymbolOrTokenRef::Token(idx) => tokens.get(idx.as_usize()),
+                let first_rhs_is_terminal = production.rhs.get(0).and_then(|sotr| match sotr {
+                    SymbolRef::NonTerminal(_) => None,
+                    SymbolRef::Terminal(idx) => terminals.get(idx.as_usize()),
                 });
-                if first_rhs_is_token == Some(&Token::new(BuiltinTokens::Epsilon.as_token())) {
+                if first_rhs_is_terminal
+                    == Some(&Terminal::new(BuiltinTerminals::Epsilon.as_terminal()))
+                {
                     nullable_nonterminal_productions.insert(lhs);
                     done = false
                 } else {
-                    // check that the production doesn't contain a token or is not nullable.
-                    let all_nullable = rule.rhs.iter().any(|sotr| match sotr {
-                        SymbolOrTokenRef::Symbol(idx) => {
-                            let symbol = symbols.get(idx.as_usize()).unwrap();
-                            nullable_nonterminal_productions.contains(symbol)
+                    // check that the production doesn't contain a terminal or is not nullable.
+                    let all_nullable = production.rhs.iter().any(|sotr| match sotr {
+                        SymbolRef::NonTerminal(idx) => {
+                            let non_terminal = non_terminals.get(idx.as_usize()).unwrap();
+                            nullable_nonterminal_productions.contains(non_terminal)
                         }
-                        SymbolOrTokenRef::Token(_) => false,
+                        SymbolRef::Terminal(_) => false,
                     });
 
                     if all_nullable {
@@ -336,13 +345,13 @@ fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<Symbol> {
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 struct ItemRef<'a> {
-    production: &'a RuleRef,
+    production: &'a ProductionRef,
     dot_position: usize,
-    lookahead: TokenRef,
+    lookahead: TerminalRef,
 }
 
 impl<'a> ItemRef<'a> {
-    fn new(production: &'a RuleRef, dot_position: usize, lookahead: TokenRef) -> Self {
+    fn new(production: &'a ProductionRef, dot_position: usize, lookahead: TerminalRef) -> Self {
         Self {
             production,
             dot_position,
@@ -371,7 +380,7 @@ impl<'a> ItemRef<'a> {
     }
 
     /// Returns `Some(B)` in the production `[ A -> ?.B?, a ]`.
-    fn symbol_after_dot(&self) -> Option<&SymbolOrTokenRef> {
+    fn symbol_after_dot(&self) -> Option<&SymbolRef> {
         let dot_position = self.dot_position;
 
         self.production.rhs.get(dot_position)
@@ -408,35 +417,35 @@ impl<'a> ItemSet<'a> {
         self.items
             .iter()
             .map(|item_ref| {
-                let rule_ref = item_ref.production;
+                let production_ref = item_ref.production;
 
                 let dot_position = item_ref.dot_position;
                 let production = grammar_table
-                    .symbols()
-                    .nth(rule_ref.lhs.as_usize())
+                    .non_terminals()
+                    .nth(production_ref.lhs.as_usize())
                     .unwrap();
-                let mut rhs = rule_ref
+                let mut rhs = production_ref
                     .rhs
                     .iter()
                     .filter_map(|sotr| match sotr {
-                        SymbolOrTokenRef::Symbol(sym_ref) => grammar_table
-                            .symbols()
+                        SymbolRef::NonTerminal(sym_ref) => grammar_table
+                            .non_terminals()
                             .nth(sym_ref.as_usize())
-                            .map(SymbolOrToken::Symbol),
-                        SymbolOrTokenRef::Token(tok_ref) => grammar_table
-                            .tokens()
+                            .map(Symbol::NonTerminal),
+                        SymbolRef::Terminal(tok_ref) => grammar_table
+                            .terminals()
                             .nth(tok_ref.as_usize())
-                            .map(SymbolOrToken::Token),
+                            .map(Symbol::Terminal),
                     })
                     .map(|sot| match sot {
-                        SymbolOrToken::Symbol(s) => s.to_string(),
-                        SymbolOrToken::Token(t) => t.to_string(),
+                        Symbol::NonTerminal(s) => s.to_string(),
+                        Symbol::Terminal(t) => t.to_string(),
                     })
                     .collect::<Vec<_>>();
                 rhs.insert(dot_position, ".".to_string());
 
                 let lookahead = grammar_table
-                    .tokens()
+                    .terminals()
                     .nth(item_ref.lookahead.as_usize())
                     .unwrap();
 
@@ -471,7 +480,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         return i;
     }
 
-    let symbols = grammar_table.symbols().collect::<Vec<_>>();
+    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
     let nullable_terms = find_nullable_nonterminals(grammar_table);
     let first_sets = build_first_set(grammar_table, &nullable_terms);
     let follow_sets = build_follow_set(grammar_table, &first_sets);
@@ -490,17 +499,17 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         for item in set.items.clone() {
             let dot_position = item.dot_position;
             let items_after_dot = &item.production.rhs[dot_position..];
-            let non_terminals = items_after_dot.iter().filter_map(|syms| match syms {
-                SymbolOrTokenRef::Symbol(s) => Some(*s),
-                SymbolOrTokenRef::Token(_) => None,
+            let non_terminal_refs = items_after_dot.iter().filter_map(|syms| match syms {
+                SymbolRef::NonTerminal(s) => Some(*s),
+                SymbolRef::Terminal(_) => None,
             });
 
-            for non_terminal in non_terminals {
-                let non_terminal_symbol = symbols[non_terminal.as_usize()];
+            for non_terminal_ref in non_terminal_refs {
+                let non_terminal = non_terminals[non_terminal_ref.as_usize()];
                 let follow_set = {
                     let mut follow_set = follow_sets
                         .sets
-                        .get(&non_terminal_symbol)
+                        .get(&non_terminal)
                         .unwrap()
                         .iter()
                         .copied()
@@ -509,15 +518,15 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                     follow_set
                 };
 
-                let matching_rules = grammar_table
-                    .rules()
-                    .filter(|rule| rule.lhs == non_terminal);
+                let matching_productions = grammar_table
+                    .productions()
+                    .filter(|production| production.lhs == non_terminal_ref);
 
-                for rule in matching_rules {
+                for production in matching_productions {
                     let new_item = follow_set
                         .iter()
-                        .filter_map(|token| grammar_table.token_mapping(token))
-                        .map(|lookahead| ItemRef::new(rule, 0, lookahead));
+                        .filter_map(|terminal| grammar_table.terminal_mapping(terminal))
+                        .map(|lookahead| ItemRef::new(production, 0, lookahead));
 
                     for new in new_item {
                         if in_set.insert(new.clone()) {
@@ -542,7 +551,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 ///     Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
 /// return Closure(J);    /* apply closure to the set */
 /// ```
-fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolOrTokenRef) -> ItemSet<'a> {
+fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> ItemSet<'a> {
     // reverse the initial set so it can be popped.
     let symbols_after_dot = i.items.iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
@@ -682,7 +691,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     collection
 }
 
-/// A wrapper type for annotating a rule.
+/// A wrapper type for annotating a production.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StateId(usize);
 
@@ -708,19 +717,19 @@ impl From<StateId> for usize {
     }
 }
 
-/// A wrapper type for annotating a rule.
+/// A wrapper type for annotating a prouduction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuleId(usize);
+pub struct ProductionId(usize);
 
-impl RuleId {
-    /// Instantiates a new [RuleId] from a reference id.
+impl ProductionId {
+    /// Instantiates a new [ProductionId] from a reference id.
     ///
     /// # Safety
     ///
-    /// Caller guarantees that the id usize corresponds to a valid rule id in
-    /// the corresponding grammar.
+    /// Caller guarantees that the id usize corresponds to a valid production
+    /// id in the corresponding grammar.
     pub fn unchecked_new(id: usize) -> Self {
-        RuleId(id)
+        ProductionId(id)
     }
 
     pub fn as_usize(&self) -> usize {
@@ -728,8 +737,8 @@ impl RuleId {
     }
 }
 
-impl From<RuleId> for usize {
-    fn from(value: RuleId) -> Self {
+impl From<ProductionId> for usize {
+    fn from(value: ProductionId) -> Self {
         value.as_usize()
     }
 }
@@ -739,10 +748,10 @@ impl From<RuleId> for usize {
 pub enum Action {
     /// The goal state has been reached and a parse can be accepted.
     Accept,
-    /// Shift the input on to the token stream.
+    /// Shift the input on to the terminal stream.
     Shift(StateId),
-    /// Reduce the rule to a previous state and type.
-    Reduce(RuleId),
+    /// Reduce the production to a previous state and type.
+    Reduce(ProductionId),
     /// No further actions for the parse.
     DeadState,
 }
@@ -788,12 +797,12 @@ impl LrTable {
 
         let left_side_padding = 8;
         let row_header = grammar_table
-            .tokens()
+            .terminals()
             .map(|t| t.to_string())
             .chain(
                 grammar_table
-                    .symbols()
-                    // skip the goal symbol
+                    .non_terminals()
+                    // skip the goal non-terminal
                     .skip(1)
                     .map(|s| s.to_string()),
             )
@@ -829,7 +838,7 @@ impl LrTable {
                         .map(|a| match a {
                             Action::Accept => format!("{: >10}", "accept"),
                             Action::Shift(id) => format!("{: >10}", format!("s{}", id.as_usize())),
-                            // rules are 1-indexed, when pretty printed
+                            // productions are 1-indexed, when pretty printed
                             Action::Reduce(id) => {
                                 format!("{: >10}", format!("r{}", id.as_usize() + 1))
                             }
@@ -882,16 +891,18 @@ fn build_table<'a>(
     grammar_table: &'a GrammarTable,
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable, TableGenError> {
-    let tokens = grammar_table.tokens().collect::<Vec<_>>();
-    let eof_terminal_ref = grammar_table.eof_token_ref();
-    let eof_terminal = tokens[eof_terminal_ref.as_usize()];
+    let terminals = grammar_table.terminals().collect::<Vec<_>>();
+    let eof_terminal_ref = grammar_table.eof_terminal_ref();
+    let eof_terminal = terminals[eof_terminal_ref.as_usize()];
 
-    let mut goto_table: Vec<Vec<Goto>> =
-        vec![vec![Goto::default(); canonical_collection.states()]; grammar_table.symbols().count()];
+    let mut goto_table: Vec<Vec<Goto>> = vec![
+        vec![Goto::default(); canonical_collection.states()];
+        grammar_table.non_terminals().count()
+    ];
     let mut action_table: Vec<Vec<Action>> =
         vec![
             vec![Action::default(); canonical_collection.states()];
-            grammar_table.tokens().count()
+            grammar_table.terminals().count()
         ];
 
     for (x, sx) in canonical_collection.item_sets.iter().enumerate() {
@@ -899,20 +910,23 @@ fn build_table<'a>(
 
         for i in items {
             let symbol_after_dot = i.symbol_after_dot().copied();
-            let lookahead_token_ref = &i.lookahead;
-            let lookahead_token = tokens.get(lookahead_token_ref.as_usize()).ok_or_else(|| {
-                TableGenError::new(TableGenErrorKind::UnknownToken)
-                    .with_data(format!("{}", &i.lookahead))
-            })?;
+            let lookahead_terminal_ref = &i.lookahead;
+            let lookahead_terminal = terminals
+                .get(lookahead_terminal_ref.as_usize())
+                .ok_or_else(|| {
+                    TableGenError::new(TableGenErrorKind::UnknownTerminal)
+                        .with_data(format!("{}", &i.lookahead))
+                })?;
 
             let is_goal = Some(i.production.lhs)
-                == grammar_table.symbol_mapping(&Symbol::from(BuiltinSymbols::Goal));
+                == grammar_table
+                    .non_terminal_mapping(&NonTerminal::from(BuiltinNonTerminals::Goal));
             let is_goal_acceptor =
-                is_goal && symbol_after_dot.is_none() && (*lookahead_token == eof_terminal);
+                is_goal && symbol_after_dot.is_none() && (*lookahead_terminal == eof_terminal);
 
-            // if not the last symbol and it's a token, setup a shift.
-            if let Some(SymbolOrTokenRef::Token(a)) = symbol_after_dot {
-                let sk = goto(grammar_table, sx, SymbolOrTokenRef::Token(a));
+            // shift is symbol is both a terminal and not the end of input.
+            if let Some(SymbolRef::Terminal(a)) = symbol_after_dot {
+                let sk = goto(grammar_table, sx, SymbolRef::Terminal(a));
                 let k = canonical_collection.id_from_set(&sk);
 
                 if let Some(k) = k {
@@ -931,21 +945,24 @@ fn build_table<'a>(
             // else if i is [A →β •,a]
             //     then ACTION[x,a] ← “reduce A → β”
             } else if symbol_after_dot.is_none() {
-                let a = lookahead_token_ref;
+                let a = lookahead_terminal_ref;
 
-                // Generate a rule from the current productions. for matching the last state.
+                // Generate a proudction from the current productions. for
+                // matching the last state.
                 let parsed_production_lhs = i.production.lhs;
                 let parsed_production_rhs = &i.production.rhs[0..i.dot_position];
                 let production_from_stack =
-                    RuleRef::new(parsed_production_lhs, parsed_production_rhs.to_vec()).unwrap();
+                    ProductionRef::new(parsed_production_lhs, parsed_production_rhs.to_vec())
+                        .unwrap();
 
-                // TODO: Store the RuleId on the production.
-                let rule_id = grammar_table
-                    .rules()
-                    .position(|rule| rule == &production_from_stack);
+                // TODO: Store the ProductionId on the production.
+                let production_id = grammar_table
+                    .productions()
+                    .position(|production| production == &production_from_stack);
 
-                if let Some(rule_id) = rule_id {
-                    action_table[a.as_usize()][x] = Action::Reduce(RuleId::unchecked_new(rule_id));
+                if let Some(production_id) = production_id {
+                    action_table[a.as_usize()][x] =
+                        Action::Reduce(ProductionId::unchecked_new(production_id));
                 };
             }
         }
@@ -954,11 +971,11 @@ fn build_table<'a>(
         //     if goto(sx ,n) = s k
         //         then GOTO [x,n] ← k
         let nt = grammar_table
-            .symbols()
+            .non_terminals()
             .skip(1)
-            .flat_map(|s| grammar_table.symbol_mapping(&s));
+            .flat_map(|s| grammar_table.non_terminal_mapping(&s));
         for n in nt {
-            let sk = goto(grammar_table, sx, SymbolOrTokenRef::Symbol(n));
+            let sk = goto(grammar_table, sx, SymbolRef::NonTerminal(n));
 
             // find the first set that contains all elements of sk.
             let k = canonical_collection
@@ -1030,7 +1047,7 @@ mod tests {
             .into_iter()
             .collect::<Vec<_>>();
 
-        assert_eq!(nullable_nonterminals, vec![Symbol::new("<factor>")])
+        assert_eq!(nullable_nonterminals, vec![NonTerminal::new("<factor>")])
     }
 
     #[test]
@@ -1052,20 +1069,20 @@ mod tests {
 
         let expected = vec![
             (
-                Symbol::from(BuiltinSymbols::Goal),
-                [Token::new("0"), Token::new("+"), Token::new("(")]
+                NonTerminal::from(BuiltinNonTerminals::Goal),
+                [Terminal::new("0"), Terminal::new("+"), Terminal::new("(")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
             (
-                Symbol::new("<E>"),
-                [Token::new("0"), Token::new("+"), Token::new("(")]
+                NonTerminal::new("<E>"),
+                [Terminal::new("0"), Terminal::new("+"), Terminal::new("(")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
             (
-                Symbol::new("<T>"),
-                [Token::new("0"), Token::new("+")]
+                NonTerminal::new("<T>"),
+                [Terminal::new("0"), Terminal::new("+")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
@@ -1089,18 +1106,18 @@ mod tests {
 
         let expected = vec![
             (
-                Symbol::from(BuiltinSymbols::Goal),
-                [Token::new("<$>")].into_iter().collect::<HashSet<_>>(),
+                NonTerminal::from(BuiltinNonTerminals::Goal),
+                [Terminal::new("<$>")].into_iter().collect::<HashSet<_>>(),
             ),
             (
-                Symbol::new("<E>"),
-                [Token::new("<$>"), Token::new(")")]
+                NonTerminal::new("<E>"),
+                [Terminal::new("<$>"), Terminal::new(")")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
             (
-                Symbol::new("<T>"),
-                [Token::new("+"), Token::new(")"), Token::new("<$>")]
+                NonTerminal::new("<T>"),
+                [Terminal::new("+"), Terminal::new(")"), Terminal::new("<$>")]
                     .into_iter()
                     .collect::<HashSet<_>>(),
             ),
@@ -1114,10 +1131,10 @@ mod tests {
         let grammar = TEST_GRAMMAR;
         let grammar_table = load_grammar(grammar).unwrap();
 
-        let initial_rule = grammar_table.rules().next().unwrap();
-        let eof = grammar_table.eof_token_ref();
+        let initial_production = grammar_table.productions().next().unwrap();
+        let eof = grammar_table.eof_terminal_ref();
 
-        let s0 = ItemSet::new(vec![ItemRef::new(initial_rule, 0, eof)]);
+        let s0 = ItemSet::new(vec![ItemRef::new(initial_production, 0, eof)]);
         let closure_res = closure(&grammar_table, s0);
 
         assert!(
@@ -1220,26 +1237,26 @@ mod tests {
         for (generation, expected_items) in [1, 5, 15, 3, 12]
             .into_iter()
             .enumerate()
-            .map(|(gen, expected_rules)| (gen + 1, expected_rules))
+            .map(|(gen, expected_productions)| (gen + 1, expected_productions))
         {
             let symbol_after_dot = symbols_after_dot.next().unwrap();
             let state = goto(&grammar_table, &s0, symbol_after_dot);
             assert_eq!(
                 state.len(),
                 expected_items,
-                "\ngeneration: {}\ntoken: {}\n{}",
+                "\ngeneration: {}\nterminal: {}\n{}",
                 generation,
                 match symbol_after_dot {
-                    SymbolOrTokenRef::Symbol(s) => {
+                    SymbolRef::NonTerminal(s) => {
                         grammar_table
-                            .symbols()
+                            .non_terminals()
                             .nth(s.as_usize())
-                            .map(SymbolOrToken::Symbol)
+                            .map(Symbol::NonTerminal)
                     }
-                    SymbolOrTokenRef::Token(t) => grammar_table
-                        .tokens()
+                    SymbolRef::Terminal(t) => grammar_table
+                        .terminals()
                         .nth(t.as_usize())
-                        .map(SymbolOrToken::Token),
+                        .map(Symbol::Terminal),
                 }
                 .unwrap(),
                 state.human_readable_format(&grammar_table)
@@ -1265,14 +1282,14 @@ mod tests {
             collection.human_readable_format(&grammar_table)
         );
 
-        let expected_rules_per_state = [10, 1, 2, 4, 3, 10, 9, 1, 2];
-        let state_rules_assertion_tuples = collection
+        let expected_productions_per_state = [10, 1, 2, 4, 3, 10, 9, 1, 2];
+        let state_productions_assertion_tuples = collection
             .item_sets
             .iter()
             .map(|state| state.len())
             .enumerate()
-            .zip(expected_rules_per_state.into_iter());
-        for ((sid, items_in_state), expected_items) in state_rules_assertion_tuples {
+            .zip(expected_productions_per_state.into_iter());
+        for ((sid, items_in_state), expected_items) in state_productions_assertion_tuples {
             assert_eq!((sid, items_in_state), (sid, expected_items))
         }
     }

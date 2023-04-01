@@ -11,11 +11,11 @@ use syn::{
     Data, DataEnum, DeriveInput, ExprClosure, Fields, Ident, LitStr, Token,
 };
 
-struct Rule(LitStr);
+struct Production(LitStr);
 
-impl Rule {
-    fn new(rule: LitStr) -> Self {
-        Self(rule)
+impl Production {
+    fn new(production: LitStr) -> Self {
+        Self(production)
     }
 
     fn value(&self) -> String {
@@ -23,7 +23,7 @@ impl Rule {
     }
 }
 
-impl Spanned for Rule {
+impl Spanned for Production {
     fn span(&self) -> Span {
         self.0.span()
     }
@@ -37,12 +37,12 @@ enum ReducerAction {
 
 enum GrammarItemAttributeKind {
     Goal,
-    Rule,
+    Production,
 }
 
 enum GrammarItemAttributeMetadata {
     Goal(GoalAttributeMetadata),
-    Rule(RuleAttributeMetadata),
+    Production(ProductionAttributeMetadata),
 }
 
 impl From<GoalAttributeMetadata> for GrammarItemAttributeMetadata {
@@ -51,18 +51,18 @@ impl From<GoalAttributeMetadata> for GrammarItemAttributeMetadata {
     }
 }
 
-impl From<RuleAttributeMetadata> for GrammarItemAttributeMetadata {
-    fn from(value: RuleAttributeMetadata) -> Self {
-        Self::Rule(value)
+impl From<ProductionAttributeMetadata> for GrammarItemAttributeMetadata {
+    fn from(value: ProductionAttributeMetadata) -> Self {
+        Self::Production(value)
     }
 }
 
-fn parse_attribute_metadata(input: ParseStream<'_>) -> syn::Result<(Rule, ReducerAction)> {
+fn parse_attribute_metadata(input: ParseStream<'_>) -> syn::Result<(Production, ReducerAction)> {
     let lookahead = input.lookahead1();
-    let spanned_rule = if lookahead.peek(LitStr) {
-        let rule: LitStr = input.parse()?;
+    let spanned_production = if lookahead.peek(LitStr) {
+        let production: LitStr = input.parse()?;
 
-        Rule::new(rule)
+        Production::new(production)
     } else {
         return Err(lookahead.error());
     };
@@ -73,66 +73,72 @@ fn parse_attribute_metadata(input: ParseStream<'_>) -> syn::Result<(Rule, Reduce
     // attempt an Ident representing a function.
     let expr_closure_action = input.parse::<ExprClosure>();
     match expr_closure_action {
-        Ok(action) => syn::Result::Ok((spanned_rule, ReducerAction::Closure(action))),
+        Ok(action) => syn::Result::Ok((spanned_production, ReducerAction::Closure(action))),
         Err(_) => {
             let action = input.parse::<Ident>().map_err(|e| {
                 let span = e.span();
                 syn::Error::new(span, "expected either a closure or a function identifier")
             })?;
-            syn::Result::Ok((spanned_rule, ReducerAction::Fn(action)))
+            syn::Result::Ok((spanned_production, ReducerAction::Fn(action)))
         }
     }
 }
 
 struct GoalAttributeMetadata {
-    rule: Rule,
+    production: Production,
     reducer: ReducerAction,
 }
 
 impl Spanned for GoalAttributeMetadata {
     fn span(&self) -> Span {
-        let rule_span = self.rule.span();
+        let production_span = self.production.span();
         let action_span = match &self.reducer {
             ReducerAction::Closure(closure) => closure.span(),
             ReducerAction::Fn(fn_ident) => fn_ident.span(),
         };
 
-        // Attempt to join the two spans or return the rule_span if not
+        // Attempt to join the two spans or return the production_span if not
         // possible
-        rule_span.join(action_span).unwrap_or(rule_span)
+        production_span.join(action_span).unwrap_or(production_span)
     }
 }
 
 impl Parse for GoalAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let (rule, reducer) = parse_attribute_metadata(input)?;
-        Ok(GoalAttributeMetadata { rule, reducer })
+        let (production, reducer) = parse_attribute_metadata(input)?;
+        Ok(GoalAttributeMetadata {
+            production,
+            reducer,
+        })
     }
 }
 
-struct RuleAttributeMetadata {
-    rule: Rule,
+struct ProductionAttributeMetadata {
+    production: Production,
     reducer: ReducerAction,
 }
 
-impl Spanned for RuleAttributeMetadata {
+impl Spanned for ProductionAttributeMetadata {
     fn span(&self) -> Span {
-        let rule_span = self.rule.span();
+        let production_span = self.production.span();
         let action_span = match &self.reducer {
             ReducerAction::Closure(closure) => closure.span(),
             ReducerAction::Fn(fn_ident) => fn_ident.span(),
         };
 
-        // Attempt to join the two spans or return the rule_span if not
+        // Attempt to join the two spans or return the production_span if not
         // possible
-        rule_span.join(action_span).unwrap_or(rule_span)
+        production_span.join(action_span).unwrap_or(production_span)
     }
 }
 
-impl Parse for RuleAttributeMetadata {
+impl Parse for ProductionAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let (rule, reducer) = parse_attribute_metadata(input)?;
-        Ok(RuleAttributeMetadata { rule, reducer })
+        let (production, reducer) = parse_attribute_metadata(input)?;
+        Ok(ProductionAttributeMetadata {
+            production,
+            reducer,
+        })
     }
 }
 
@@ -174,9 +180,9 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
             let variant_ident = variant.ident;
             let variant_fields = variant.fields;
 
-            let grammar_rule_attributes = variant.attrs.iter().filter_map(|attr| {
-                if attr.path.is_ident("rule") {
-                    Some((GrammarItemAttributeKind::Rule, attr))
+            let grammar_attributes = variant.attrs.iter().filter_map(|attr| {
+                if attr.path.is_ident("production") {
+                    Some((GrammarItemAttributeKind::Production, attr))
                 } else if attr.path.is_ident("goal") {
                     Some((GrammarItemAttributeKind::Goal, attr))
                 } else {
@@ -184,14 +190,14 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
                 }
             });
 
-            let valid_attrs_for_variant = grammar_rule_attributes
+            let valid_attrs_for_variant = grammar_attributes
                 .map(|(kind, attr)| {
                     match kind {
                         GrammarItemAttributeKind::Goal => attr
                             .parse_args_with(GoalAttributeMetadata::parse)
                             .map(GrammarItemAttributeMetadata::from),
-                        GrammarItemAttributeKind::Rule => attr
-                            .parse_args_with(RuleAttributeMetadata::parse)
+                        GrammarItemAttributeKind::Production => attr
+                            .parse_args_with(ProductionAttributeMetadata::parse)
                             .map(GrammarItemAttributeMetadata::from),
                     }
                     // check that either field has exactly zero or one
@@ -216,7 +222,7 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
                 // terminate if any attributes are invalid
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // Collect all rules for a production variant.
+            // Collect all productions for a production variant.
             if !valid_attrs_for_variant.is_empty() {
                 Ok(ProductionAnnotatedEnumVariant {
                     non_terminal: variant_ident,
@@ -253,10 +259,10 @@ impl ReducibleGrammarTable {
 }
 
 impl ReducibleGrammarTable {
-    fn token_ident(&self) -> Option<String> {
+    fn terminal_ident(&self) -> Option<String> {
         self.grammar_table
-            .tokens()
-            .filter(|t| !lr_core::grammar::BuiltinTokens::is_builtin(t))
+            .terminals()
+            .filter(|t| !lr_core::grammar::BuiltinTerminals::is_builtin(t))
             .filter_map(|t| t.as_ref().split("::").next().map(|t| t.to_string()))
             .next()
     }
@@ -266,21 +272,21 @@ fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
     use lr_core::grammar::{
-        define_rule_mut, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
+        define_production_mute, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
     };
 
     let eof_terminal = "Terminal::Eof";
     let mut grammar_table = DefaultInitializedGrammarTableSansBuiltins::initialize_table();
-    let _ = grammar_table.declare_eof_token(eof_terminal);
+    let _ = grammar_table.declare_eof_terminal(eof_terminal);
 
     let mut goal = None;
-    let mut rules = vec![];
+    let mut productions = vec![];
     let mut reducers = vec![];
 
     for production in &grammar_variants.variant_metadata {
         let attr_metadata = &production.attr_metadata;
-        for rule in attr_metadata {
-            match rule {
+        for production_kind in attr_metadata {
+            match production_kind {
                 // error if multiple goals are defined.
                 GrammarItemAttributeMetadata::Goal(_) if goal.is_some() => {
                     return Err("multiple goals defined".to_string())
@@ -288,31 +294,31 @@ fn generate_grammer_table_from_annotated_enum(
                 GrammarItemAttributeMetadata::Goal(g) => {
                     goal = Some(g);
                 }
-                GrammarItemAttributeMetadata::Rule(ram) => {
+                GrammarItemAttributeMetadata::Production(ram) => {
                     let non_terminal = production.non_terminal.to_string();
-                    rules.push((non_terminal, ram));
+                    productions.push((non_terminal, ram));
                 }
             }
         }
     }
 
     if let Some(gam) = goal {
-        let rhs = gam.rule.value();
+        let rhs = gam.production.value();
         let line = format!("<*> ::= {}", rhs);
         let reducer = gam.reducer.clone();
 
-        define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        define_production_mute(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     } else {
         return Err("No goal production defined".to_string());
     }
 
-    for (non_terminal, ram) in rules {
-        let rhs = ram.rule.value();
+    for (non_terminal, ram) in productions {
+        let rhs = ram.production.value();
         let line = format!("<{}> ::= {}", non_terminal, rhs);
         let reducer = ram.reducer.clone();
 
-        define_rule_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        define_production_mute(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     }
 
@@ -353,8 +359,8 @@ impl<'a> StateTable<'a> {
             action_columns
         });
 
-        let tokens = grammar_table.tokens();
-        let lookahead_variants = tokens.collect::<Vec<_>>();
+        let terminals = grammar_table.terminals();
+        let lookahead_variants = terminals.collect::<Vec<_>>();
         let states = possible_states
             .map(|(state_idx, lookahead_idx, action)| {
                 let lookahead = lookahead_variants[lookahead_idx];
@@ -383,12 +389,12 @@ impl<'a> std::fmt::Display for StateTable<'a> {
 #[derive(Debug, Clone, Copy)]
 struct ActionVariant<'a> {
     state_id: usize,
-    lookahead: lr_core::grammar::Token<'a>,
+    lookahead: lr_core::grammar::Terminal<'a>,
     action: &'a Action,
 }
 
 impl<'a> ActionVariant<'a> {
-    fn new(state_id: usize, lookahead: lr_core::grammar::Token<'a>, action: &'a Action) -> Self {
+    fn new(state_id: usize, lookahead: lr_core::grammar::Terminal<'a>, action: &'a Action) -> Self {
         Self {
             state_id,
             lookahead,
@@ -397,7 +403,7 @@ impl<'a> ActionVariant<'a> {
     }
 }
 
-/// An ordered iterator over all tokens in a grammar table.
+/// An ordered iterator over all actions in a grammar table.
 #[derive(Debug, Clone)]
 struct ActionIterator<'a> {
     states: Vec<ActionVariant<'a>>,
@@ -459,7 +465,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                 let lookahead_repr = lookahead.as_ref();
 
                 // TODO: Need to come up with a better fix for this hack.
-                let token_variant_repr = if lookahead_repr.starts_with("<$>") {
+                let eof_terminal_variant_repr = if lookahead_repr.starts_with("<$>") {
                     panic!("!")
                 } else if lookahead_repr.contains("::") {
                     lookahead.as_ref().split("::").last().unwrap()
@@ -467,7 +473,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     lookahead_repr
                 };
 
-                let token_repr = format_ident!("{}", token_variant_repr);
+                let terminal_repr = format_ident!("{}", eof_terminal_variant_repr);
                 let action_stream = match action {
                     Action::Accept => quote!(Action::Accept),
                     Action::Shift(state) => {
@@ -476,13 +482,13 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     }
                     Action::Reduce(reduce_to) => {
                         let reduce_to = reduce_to.as_usize();
-                        quote!(Action::Reduce(RuleId::unchecked_new(#reduce_to)))
+                        quote!(Action::Reduce(ProductionId::unchecked_new(#reduce_to)))
                     }
                     Action::DeadState => quote!(Action::DeadState),
                 };
 
                 quote!(
-                    (#state_id, #terminal_ident::#token_repr) => Ok(#action_stream),
+                    (#state_id, #terminal_ident::#terminal_repr) => Ok(#action_stream),
                 )
             },
         );
@@ -536,7 +542,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                         _ => (
                             0,
                             Err(format!(
-                                "unable to reduce to rule {}.",
+                                "unable to reduce to production {}.",
                                 reduce_to.as_usize()
                             )),
                         ),
@@ -629,23 +635,22 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let mut variants = vec![];
 
-        // skip the first (goal) symbol
-        let per_symbol_gotos = self
+        let per_non_terminal_gotos = self
             .goto_table
             .iter()
-            // skip the goal symbol
+            // skip the goal non-terminal
             .skip(1)
             .enumerate();
 
         let nonterm_ident = &self.nonterminal_ident;
 
-        for (symbol_id, gotos) in per_symbol_gotos {
+        for (non_terminal_id, gotos) in per_non_terminal_gotos {
             let valid_variants =
                 gotos
                     .iter()
                     .enumerate()
                     .filter_map(|(state_id, goto)| match goto {
-                        Goto::State(goto_state) => Some((state_id, symbol_id, goto_state)),
+                        Goto::State(goto_state) => Some((state_id, non_terminal_id, goto_state)),
                         Goto::DeadState => None,
                     });
 
@@ -742,7 +747,7 @@ fn codegen(
 ) -> Result<TokenStream, String> {
     let goto_formatted_nonterms = grammar_table
         .grammar_table
-        .symbols()
+        .non_terminals()
         .skip(1)
         .map(|s| {
             s.as_ref()
@@ -763,8 +768,8 @@ fn codegen(
     let reducers = grammar_table.reducers.as_ref();
     let rhs_lens = grammar_table
         .grammar_table
-        .rules()
-        .map(|rule_ref| rule_ref.rhs_len())
+        .productions()
+        .map(|production_ref| production_ref.rhs_len())
         .collect::<Vec<_>>();
     let action_matcher_codegen =
         ActionMatcherCodeGen::new(terminal_identifier, states_iter, reducers, &rhs_lens)
@@ -775,7 +780,7 @@ fn codegen(
     let parser_fn_stream = quote!(
         #[allow(unused)]
         pub fn lr_parse_input<T: AsRef<[Terminal]>>(input: T) -> Result<NonTerminal, String> {
-            use lr_core::lr::{Action, RuleId, StateId};
+            use lr_core::lr::{Action, ProductionId, StateId};
 
             let mut input = input.as_ref().iter().copied().peekable();
             let mut parse_ctx = ParseContext::default();
@@ -804,8 +809,8 @@ fn codegen(
 }
 
 /// The dispatcher method for tokens annotated with the Lr1 derive.
-#[proc_macro_derive(Lr1, attributes(goal, rule))]
-pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(Lr1, attributes(goal, production))]
+pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     use lr_core::{generate_table_from_grammar, GeneratorKind};
 
     let input = parse_macro_input!(input as DeriveInput);
@@ -822,7 +827,7 @@ pub fn relex(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
     let term_ident = reducible_grammar_table
-        .token_ident()
+        .terminal_ident()
         .map(|t| format_ident!("{}", t))
         .unwrap();
     let non_terminal_ident = annotated_enum.enum_ident;
