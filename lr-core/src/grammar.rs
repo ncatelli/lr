@@ -1,12 +1,12 @@
 use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinSymbols {
+pub(crate) enum BuiltinNonTerminals {
     Goal,
 }
 
-impl BuiltinSymbols {
-    pub(crate) fn as_symbol(&self) -> &'static str {
+impl BuiltinNonTerminals {
+    pub(crate) fn as_non_terminals(&self) -> &'static str {
         match self {
             Self::Goal => "<*>",
         }
@@ -14,52 +14,52 @@ impl BuiltinSymbols {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinTokens {
+pub enum BuiltinTerminals {
     Epsilon,
     Eof,
     EndL,
 }
 
-impl BuiltinTokens {
-    pub fn is_builtin<S: AsRef<str>>(token_str: S) -> bool {
-        let val = token_str.as_ref();
+impl BuiltinTerminals {
+    pub fn is_builtin<S: AsRef<str>>(terminal: S) -> bool {
+        let val = terminal.as_ref();
         [Self::Epsilon, Self::Eof, Self::EndL]
             .iter()
-            .map(|builtin| builtin.as_token())
+            .map(|builtin| builtin.as_terminal())
             .any(|builtin| builtin == val)
     }
 
-    pub(crate) fn as_token(&self) -> &'static str {
+    pub(crate) fn as_terminal(&self) -> &'static str {
         match self {
-            BuiltinTokens::Epsilon => "<epsilon>",
-            BuiltinTokens::Eof => "<$>",
-            BuiltinTokens::EndL => "<endl>",
+            BuiltinTerminals::Epsilon => "<epsilon>",
+            BuiltinTerminals::Eof => "<$>",
+            BuiltinTerminals::EndL => "<endl>",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolOrToken<'a> {
-    Symbol(Symbol<'a>),
-    Token(Token<'a>),
+pub enum Symbol<'a> {
+    NonTerminal(NonTerminal<'a>),
+    Terminal(Terminal<'a>),
 }
 
-impl<'a> std::fmt::Display for SymbolOrToken<'a> {
+impl<'a> std::fmt::Display for Symbol<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SymbolOrToken::Symbol(s) => s.fmt(f),
-            SymbolOrToken::Token(t) => t.fmt(f),
+            Symbol::NonTerminal(s) => s.fmt(f),
+            Symbol::Terminal(t) => t.fmt(f),
         }
     }
 }
 
-/// A wrapper type for symbols that reference the grammar table.
+/// A wrapper type for non-terminals that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub struct SymbolRef(usize);
+pub struct NonTerminalRef(usize);
 
-impl SymbolRef {
-    pub(crate) fn new(symbol: usize) -> Self {
-        Self(symbol)
+impl NonTerminalRef {
+    pub(crate) fn new(non_terminal: usize) -> Self {
+        Self(non_terminal)
     }
 
     pub(crate) fn as_usize(&self) -> usize {
@@ -67,13 +67,13 @@ impl SymbolRef {
     }
 }
 
-impl From<usize> for SymbolRef {
+impl From<usize> for NonTerminalRef {
     fn from(val: usize) -> Self {
         Self::new(val)
     }
 }
 
-impl std::fmt::Display for SymbolRef {
+impl std::fmt::Display for NonTerminalRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Adds 1 as production is 1 indexed in human-readable format but 0
         // indexed internally. This is probably going to haunt me at some
@@ -82,13 +82,13 @@ impl std::fmt::Display for SymbolRef {
     }
 }
 
-/// A wrapper type for tokens that reference the grammar table.
+/// A wrapper type for terminals that reference the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub struct TokenRef(usize);
+pub struct TerminalRef(usize);
 
-impl TokenRef {
-    pub(crate) fn new(token: usize) -> Self {
-        Self(token)
+impl TerminalRef {
+    pub(crate) fn new(terminal_id: usize) -> Self {
+        Self(terminal_id)
     }
 
     pub(crate) fn as_usize(&self) -> usize {
@@ -96,13 +96,13 @@ impl TokenRef {
     }
 }
 
-impl From<usize> for TokenRef {
+impl From<usize> for TerminalRef {
     fn from(val: usize) -> Self {
         Self::new(val)
     }
 }
 
-impl std::fmt::Display for TokenRef {
+impl std::fmt::Display for TerminalRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Adds 1 as production is 1 indexed in human-readable format but 0
         // indexed internally. This is probably going to haunt me at some
@@ -112,48 +112,48 @@ impl std::fmt::Display for TokenRef {
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolOrTokenRef {
-    Symbol(SymbolRef),
-    Token(TokenRef),
+pub enum SymbolRef {
+    NonTerminal(NonTerminalRef),
+    Terminal(TerminalRef),
 }
 
-impl std::fmt::Display for SymbolOrTokenRef {
+impl std::fmt::Display for SymbolRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SymbolOrTokenRef::Symbol(id) => write!(f, "{}", id),
-            SymbolOrTokenRef::Token(id) => write!(f, "{}", id),
+            SymbolRef::NonTerminal(id) => write!(f, "{}", id),
+            SymbolRef::Terminal(id) => write!(f, "{}", id),
         }
     }
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
-pub struct RuleRef {
-    pub lhs: SymbolRef,
-    pub rhs: Vec<SymbolOrTokenRef>,
+pub struct ProductionRef {
+    pub lhs: NonTerminalRef,
+    pub rhs: Vec<SymbolRef>,
 }
 
-impl RuleRef {
-    pub(crate) fn new(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Option<Self> {
-        let rule = Self::new_unchecked(lhs, rhs);
+impl ProductionRef {
+    pub(crate) fn new(lhs: NonTerminalRef, rhs: Vec<SymbolRef>) -> Option<Self> {
+        let production = Self::new_unchecked(lhs, rhs);
 
-        if rule.is_valid() {
-            Some(rule)
+        if production.is_valid() {
+            Some(production)
         } else {
             None
         }
     }
 
-    fn new_unchecked(lhs: SymbolRef, rhs: Vec<SymbolOrTokenRef>) -> Self {
+    fn new_unchecked(lhs: NonTerminalRef, rhs: Vec<SymbolRef>) -> Self {
         Self { lhs, rhs }
     }
 
     fn is_valid(&self) -> bool {
-        let is_non_terminal_rule = self
+        let production = self
             .rhs
             .iter()
-            .all(|items| items == &SymbolOrTokenRef::Symbol(self.lhs));
+            .all(|items| items == &SymbolRef::NonTerminal(self.lhs));
 
-        !(self.rhs.is_empty() || is_non_terminal_rule)
+        !(self.rhs.is_empty() || production)
     }
 
     pub fn rhs_len(&self) -> usize {
@@ -161,7 +161,7 @@ impl RuleRef {
     }
 }
 
-impl std::fmt::Display for RuleRef {
+impl std::fmt::Display for ProductionRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let lhs = format!("S{}", self.lhs.as_usize() + 1);
         let rhs = self
@@ -175,68 +175,68 @@ impl std::fmt::Display for RuleRef {
     }
 }
 
-/// A wrapper type for symbols borrowed from the grammar table.
+/// A wrapper type for non-terminals borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub struct Symbol<'a>(&'a str);
+pub struct NonTerminal<'a>(&'a str);
 
-impl<'a> Symbol<'a> {
-    pub(crate) fn new(symbol: &'a str) -> Self {
-        Self(symbol)
+impl<'a> NonTerminal<'a> {
+    pub(crate) fn new(non_terminal: &'a str) -> Self {
+        Self(non_terminal)
     }
 }
-impl<'a> AsRef<str> for Symbol<'a> {
+impl<'a> AsRef<str> for NonTerminal<'a> {
     fn as_ref(&self) -> &str {
         self.0
     }
 }
 
-impl<'a> std::fmt::Display for Symbol<'a> {
+impl<'a> std::fmt::Display for NonTerminal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
     }
 }
 
-impl<'a> From<BuiltinSymbols> for Symbol<'a> {
-    fn from(val: BuiltinSymbols) -> Self {
-        Self::new(val.as_symbol())
+impl<'a> From<BuiltinNonTerminals> for NonTerminal<'a> {
+    fn from(val: BuiltinNonTerminals) -> Self {
+        Self::new(val.as_non_terminals())
     }
 }
 
-impl<'a> From<&'a str> for Symbol<'a> {
+impl<'a> From<&'a str> for NonTerminal<'a> {
     fn from(val: &'a str) -> Self {
         Self::new(val)
     }
 }
 
-/// A wrapper type for tokens borrowed from the grammar table.
+/// A wrapper type for terminals borrowed from the grammar table.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Token<'a>(&'a str);
+pub struct Terminal<'a>(&'a str);
 
-impl<'a> Token<'a> {
-    pub(crate) fn new(token: &'a str) -> Self {
-        Self(token)
+impl<'a> Terminal<'a> {
+    pub(crate) fn new(terminal: &'a str) -> Self {
+        Self(terminal)
     }
 }
 
-impl<'a> AsRef<str> for Token<'a> {
+impl<'a> AsRef<str> for Terminal<'a> {
     fn as_ref(&self) -> &str {
         self.0
     }
 }
 
-impl<'a> From<&'a str> for Token<'a> {
+impl<'a> From<&'a str> for Terminal<'a> {
     fn from(val: &'a str) -> Self {
-        Token::new(val)
+        Terminal::new(val)
     }
 }
 
-impl<'a> From<BuiltinTokens> for Token<'a> {
-    fn from(val: BuiltinTokens) -> Self {
-        Token::new(val.as_token())
+impl<'a> From<BuiltinTerminals> for Terminal<'a> {
+    fn from(val: BuiltinTerminals) -> Self {
+        Terminal::new(val.as_terminal())
     }
 }
 
-impl<'a> std::fmt::Display for Token<'a> {
+impl<'a> std::fmt::Display for Terminal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
     }
@@ -244,89 +244,97 @@ impl<'a> std::fmt::Display for Token<'a> {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct GrammarTable {
-    symbols: HashMap<String, usize>,
-    tokens: HashMap<String, usize>,
-    rules: Vec<RuleRef>,
+    non_terminals: HashMap<String, usize>,
+    terminals: HashMap<String, usize>,
+    productions: Vec<ProductionRef>,
 
-    eof_token_ref: Option<TokenRef>,
+    eof_terminal_ref: Option<TerminalRef>,
 }
 
 impl GrammarTable {
-    pub(crate) const ROOT_RULE_IDX: usize = 0;
+    pub(crate) const ROOT_PRODUCTION_IDX: usize = 0;
 
-    /// Adds a symbol to the table, returning its index. If the symbol already
-    /// exists, the index to the previously added symbol is returned.
-    fn add_symbol_mut<S: AsRef<str>>(&mut self, symbol: S) -> usize {
-        let symbol = symbol.as_ref();
-        let new_id = self.symbols.len();
+    /// Adds a non-terminal to the table, returning its index. If the
+    /// non-terminal already exists, the index to the previously added
+    /// non-terminal is returned.
+    fn add_non_terminal_mut<NT: AsRef<str>>(&mut self, non_terminal: NT) -> usize {
+        let non_terminal = non_terminal.as_ref();
+        let new_id = self.non_terminals.len();
 
-        self.symbols.entry(symbol.to_string()).or_insert(new_id);
+        self.non_terminals
+            .entry(non_terminal.to_string())
+            .or_insert(new_id);
 
         // safe to unwrap due to above guarantee
-        self.symbols.get(symbol).copied().unwrap()
+        self.non_terminals.get(non_terminal).copied().unwrap()
     }
 
-    /// Adds a token to the table, returning its index. If the token already
-    /// exists, the index to the previously added token is returned.
-    fn add_token_mut<S: AsRef<str>>(&mut self, token: S) -> usize {
-        let token = token.as_ref();
-        let new_id = self.tokens.len();
+    /// Adds a terminal to the table, returning its index. If the terminal already
+    /// exists, the index to the previously added terminal is returned.
+    fn add_terminal_mut<S: AsRef<str>>(&mut self, terminal: S) -> usize {
+        let terminal = terminal.as_ref();
+        let new_id = self.terminals.len();
 
-        self.tokens.entry(token.to_string()).or_insert(new_id);
+        self.terminals.entry(terminal.to_string()).or_insert(new_id);
         // safe to unwrap due to above guarantee
-        self.tokens.get(token).copied().unwrap()
+        self.terminals.get(terminal).copied().unwrap()
     }
 
-    fn add_rule_mut(&mut self, rule: RuleRef) {
-        self.rules.push(rule);
+    fn add_production_mut(&mut self, production: ProductionRef) {
+        self.productions.push(production);
     }
 
-    pub fn declare_eof_token<S: AsRef<str>>(
+    pub fn declare_eof_terminal<T: AsRef<str>>(
         &mut self,
-        token: S,
+        terminal: T,
     ) -> Result<usize, GrammarLoadError> {
-        let repr = token.as_ref();
+        let repr = terminal.as_ref();
 
-        let token_id = self.add_token_mut(repr);
-        self.eof_token_ref = Some(TokenRef(token_id));
+        let terminal_id = self.add_terminal_mut(repr);
+        self.eof_terminal_ref = Some(TerminalRef(terminal_id));
 
-        Ok(token_id)
+        Ok(terminal_id)
     }
 
-    pub fn eof_token_ref(&self) -> TokenRef {
-        match self.eof_token_ref {
+    pub fn eof_terminal_ref(&self) -> TerminalRef {
+        match self.eof_terminal_ref {
             Some(eof_tok) => eof_tok,
-            None => self.builtin_token_mapping(&BuiltinTokens::Eof),
+            None => self.builtin_terminal_mapping(&BuiltinTerminals::Eof),
         }
     }
 
-    pub fn symbols(&self) -> SymbolIterator {
-        SymbolIterator::new(self)
+    pub fn non_terminals(&self) -> NonTerminalIterator {
+        NonTerminalIterator::new(self)
     }
 
-    pub fn tokens(&self) -> TokenIterator {
-        TokenIterator::new(self)
+    pub fn terminals(&self) -> TerminalIterator {
+        TerminalIterator::new(self)
     }
 
-    pub(crate) fn symbol_mapping(&self, symbol: &Symbol) -> Option<SymbolRef> {
-        self.symbols.get(symbol.0).map(|id| SymbolRef(*id))
+    pub(crate) fn non_terminal_mapping(
+        &self,
+        non_terminal: &NonTerminal,
+    ) -> Option<NonTerminalRef> {
+        self.non_terminals
+            .get(non_terminal.0)
+            .map(|id| NonTerminalRef(*id))
     }
 
-    pub(crate) fn token_mapping(&self, token: &Token) -> Option<TokenRef> {
-        self.tokens.get(token.0).map(|id| TokenRef(*id))
+    pub(crate) fn terminal_mapping(&self, terminal: &Terminal) -> Option<TerminalRef> {
+        self.terminals.get(terminal.0).map(|id| TerminalRef(*id))
     }
 
-    /// Similarly to token_mapping, this looks up a TokenRef, however the
-    /// builtin guaranteed removes the need to return an Option.
-    pub(crate) fn builtin_token_mapping(&self, token: &BuiltinTokens) -> TokenRef {
-        self.tokens
-            .get(token.as_token())
-            .map(|id| TokenRef(*id))
+    /// Similarly to terminal_mapping, this looks up a [TerminalRef], however
+    /// the builtin guaranteed removes the need to return an [Option].
+    pub(crate) fn builtin_terminal_mapping(&self, terminal: &BuiltinTerminals) -> TerminalRef {
+        self.terminals
+            .get(terminal.as_terminal())
+            .map(|id| TerminalRef(*id))
             .unwrap()
     }
 
-    pub fn rules(&self) -> impl Iterator<Item = &RuleRef> {
-        self.rules.iter()
+    pub fn productions(&self) -> impl Iterator<Item = &ProductionRef> {
+        self.productions.iter()
     }
 }
 
@@ -335,30 +343,30 @@ impl std::fmt::Display for GrammarTable {
         let header = "Grammar Table
 -------------";
 
-        let symbols = self
-            .symbols()
+        let non_terminals = self
+            .non_terminals()
             .enumerate()
-            .map(|(id, symbol)| format!("{}. '{}'\n", id + 1, symbol))
+            .map(|(id, non_terminal)| format!("{}. '{}'\n", id + 1, non_terminal))
             .collect::<String>();
-        let tokens = self
-            .tokens()
+        let terminals = self
+            .terminals()
             .enumerate()
-            .map(|(id, token)| format!("{}. '{}'\n", id + 1, token))
+            .map(|(id, terminal)| format!("{}. '{}'\n", id + 1, terminal))
             .collect::<String>();
 
-        let rules = self
-            .rules
+        let productions = self
+            .productions
             .iter()
             .enumerate()
             // 1-indexed
-            .map(|(idx, rule)| (idx + 1, rule))
-            .map(|(idx, rule)| format!("{}. {}\n", idx, rule))
+            .map(|(idx, production)| (idx + 1, production))
+            .map(|(idx, production)| format!("{}. {}\n", idx, production))
             .collect::<String>();
 
         write!(
             f,
-            "{}\nSYMBOLS\n{}\nTOKENS\n{}\nRULES\n{}",
-            header, symbols, tokens, rules
+            "{}\nNON-TERMINALS\n{}\nTERMINALS\n{}\nPRODUCTIONS\n{}",
+            header, non_terminals, terminals, productions
         )
     }
 }
@@ -368,35 +376,35 @@ pub trait GrammarInitializer {
     fn initialize_table() -> GrammarTable;
 }
 
-/// Defines a [GrammarTable] builder that includes a Goal symbol.
+/// Defines a [GrammarTable] builder that includes a Goal non-terminal.
 pub struct DefaultInitializedGrammarTableSansBuiltins;
 
 impl DefaultInitializedGrammarTableSansBuiltins {
-    const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
+    const DEFAULT_NON_TERMINALS: [BuiltinNonTerminals; 1] = [BuiltinNonTerminals::Goal];
 }
 
 impl GrammarInitializer for DefaultInitializedGrammarTableSansBuiltins {
     fn initialize_table() -> GrammarTable {
         let mut grammar_table = GrammarTable::default();
 
-        for builtin_symbol in Self::DEFAULT_SYMBOLS {
-            grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
+        for builtin_non_terminals in Self::DEFAULT_NON_TERMINALS {
+            grammar_table.add_non_terminal_mut(builtin_non_terminals.as_non_terminals());
         }
 
         grammar_table
     }
 }
 
-/// Defines a [GrammarTable] builder that includes a Goal symbol and common
-/// tokens.
+/// Defines a [GrammarTable] builder that includes a Goal non-terminal and common
+/// terminals.
 pub struct DefaultInitializedGrammarTableBuilder;
 
 impl DefaultInitializedGrammarTableBuilder {
-    const DEFAULT_SYMBOLS: [BuiltinSymbols; 1] = [BuiltinSymbols::Goal];
-    const DEFAULT_TOKENS: [BuiltinTokens; 3] = [
-        BuiltinTokens::Epsilon,
-        BuiltinTokens::Eof,
-        BuiltinTokens::EndL,
+    const DEFAULT_NON_TERMINALS: [BuiltinNonTerminals; 1] = [BuiltinNonTerminals::Goal];
+    const DEFAULT_TERMINALS: [BuiltinTerminals; 3] = [
+        BuiltinTerminals::Epsilon,
+        BuiltinTerminals::Eof,
+        BuiltinTerminals::EndL,
     ];
 }
 
@@ -404,22 +412,22 @@ impl GrammarInitializer for DefaultInitializedGrammarTableBuilder {
     fn initialize_table() -> GrammarTable {
         let mut grammar_table = GrammarTable::default();
 
-        for builtin_symbol in Self::DEFAULT_SYMBOLS {
-            grammar_table.add_symbol_mut(builtin_symbol.as_symbol());
+        for builtin_non_terminals in Self::DEFAULT_NON_TERMINALS {
+            grammar_table.add_non_terminal_mut(builtin_non_terminals.as_non_terminals());
         }
 
-        // add default tokens
-        for builtin_token in Self::DEFAULT_TOKENS {
-            let symbol_string_repr = builtin_token.as_token().to_string();
-            grammar_table.add_token_mut(symbol_string_repr);
+        // add default terminals
+        for builtin_terminals in Self::DEFAULT_TERMINALS {
+            let non_terminal_string_repr = builtin_terminals.as_terminal().to_string();
+            grammar_table.add_terminal_mut(non_terminal_string_repr);
         }
 
         grammar_table
     }
 }
 
-/// Defines a [GrammarTable] builder that includes a Goal symbol, Goal rule
-/// and common tokens.
+/// Defines a [GrammarTable] builder that includes a Goal non-terminals, Goal
+/// production and common terminals.
 pub struct DefaultInitializedWithGoalProductionGrammarTableBuilder;
 
 impl GrammarInitializer for DefaultInitializedWithGoalProductionGrammarTableBuilder {
@@ -427,78 +435,78 @@ impl GrammarInitializer for DefaultInitializedWithGoalProductionGrammarTableBuil
         let mut grammar_table = DefaultInitializedGrammarTableBuilder::initialize_table();
 
         // initial table
-        let root_rule_idx = SymbolRef::new(GrammarTable::ROOT_RULE_IDX);
-        let root_rule = RuleRef::new_unchecked(root_rule_idx, vec![]);
-        grammar_table.add_rule_mut(root_rule);
+        let root_production_idx = NonTerminalRef::new(GrammarTable::ROOT_PRODUCTION_IDX);
+        let root_production = ProductionRef::new_unchecked(root_production_idx, vec![]);
+        grammar_table.add_production_mut(root_production);
 
         grammar_table
     }
 }
 
-/// An ordered iterator over all symbols in a grammar table.
-pub struct SymbolIterator<'a> {
-    symbols: Vec<&'a str>,
+/// An ordered iterator over all non_terminals in a grammar table.
+pub struct NonTerminalIterator<'a> {
+    non_terminals: Vec<&'a str>,
 }
 
-impl<'a> SymbolIterator<'a> {
+impl<'a> NonTerminalIterator<'a> {
     fn new(grammar_table: &'a GrammarTable) -> Self {
         let mut values = grammar_table
-            .symbols
+            .non_terminals
             .iter()
             .map(|(key, value)| (key.as_str(), value))
             .collect::<Vec<_>>();
-        // reverse the order so first rule pops off the back first.
+        // reverse the order so first production pops off the top of the stack.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
 
         Self {
-            symbols: values.into_iter().map(|(key, _)| key).collect(),
+            non_terminals: values.into_iter().map(|(key, _)| key).collect(),
         }
     }
 }
 
-impl<'a> Iterator for SymbolIterator<'a> {
-    type Item = Symbol<'a>;
+impl<'a> Iterator for NonTerminalIterator<'a> {
+    type Item = NonTerminal<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.symbols.pop().map(Symbol)
+        self.non_terminals.pop().map(NonTerminal)
     }
 }
 
-/// An ordered iterator over all tokens in a grammar table.
-pub struct TokenIterator<'a> {
-    tokens: Vec<&'a str>,
+/// An ordered iterator over all terminals in a grammar table.
+pub struct TerminalIterator<'a> {
+    terminals: Vec<&'a str>,
 }
 
-impl<'a> TokenIterator<'a> {
+impl<'a> TerminalIterator<'a> {
     fn new(grammar_table: &'a GrammarTable) -> Self {
         let mut values = grammar_table
-            .tokens
+            .terminals
             .iter()
             .map(|(key, value)| (key.as_str(), value))
             .collect::<Vec<_>>();
-        // reverse the order so first rule pops off the back first.
+        // reverse the order so first production pops off the top of the stack.
         values.sort_by(|(_, a), (_, b)| b.cmp(a));
 
         Self {
-            tokens: values.into_iter().map(|(key, _)| key).collect(),
+            terminals: values.into_iter().map(|(key, _)| key).collect(),
         }
     }
 }
 
-impl<'a> Iterator for TokenIterator<'a> {
-    type Item = Token<'a>;
+impl<'a> Iterator for TerminalIterator<'a> {
+    type Item = Terminal<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.tokens.pop().map(Token)
+        self.terminals.pop().map(Terminal)
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum GrammarLoadErrorKind {
     NoTerminalProduction,
-    InvalidRule,
-    ConflictingRule,
-    InvalidToken,
+    InvalidProduction,
+    ConflictingProduction,
+    InvalidTerminal,
 }
 
 impl std::fmt::Display for GrammarLoadErrorKind {
@@ -507,9 +515,11 @@ impl std::fmt::Display for GrammarLoadErrorKind {
             Self::NoTerminalProduction => {
                 write!(f, "grammar does not include a terminal production")
             }
-            Self::InvalidRule => write!(f, "provided rule is invalid",),
-            Self::ConflictingRule => write!(f, "provided rule conflicts with existing rule",),
-            Self::InvalidToken => write!(f, "provided token is not registered with grammer"),
+            Self::InvalidProduction => write!(f, "provided production is invalid",),
+            Self::ConflictingProduction => {
+                write!(f, "provided production conflicts with existing production",)
+            }
+            Self::InvalidTerminal => write!(f, "provided terminal is not registered with grammer"),
         }
     }
 }
@@ -544,23 +554,27 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub fn define_rule_mut<S: AsRef<str>>(
+pub fn define_production_mute<S: AsRef<str>>(
     grammar_table: &mut GrammarTable,
     line: S,
 ) -> Result<(), GrammarLoadError> {
     let trimmed_line = line.as_ref().trim();
 
-    // validate the start of the line is a symbol
+    // validate the start of the line is a non-terminal
     if !trimmed_line.starts_with('<') {
-        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-            .with_data("doesn't start with symbol".to_string()));
+        return Err(
+            GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
+                .with_data("doesn't start with a non-terminal".to_string()),
+        );
     }
 
     // split the line at the assignment delimiter
     let mut split_line = trimmed_line.split("::=").collect::<Vec<_>>();
     if split_line.len() != 2 {
-        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-            .with_data("does not contain right-hand side".to_string()));
+        return Err(
+            GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
+                .with_data("does not contain right-hand side".to_string()),
+        );
     }
 
     // safe to assume this will have a value from above checks.
@@ -572,49 +586,55 @@ pub fn define_rule_mut<S: AsRef<str>>(
         .unwrap();
     let lhs = split_line.pop().map(|lhs| lhs.trim()).unwrap();
 
-    // retrieve the LHS symbol.
-    let lhs_symbol = symbol_value_from_str(lhs).ok_or_else(|| {
-        GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-            .with_data("doesn't start with symbol".to_string())
+    // retrieve the LHS non-terminal.
+    let lhs_non_terminal = non_terminal_value_from_str(lhs).ok_or_else(|| {
+        GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
+            .with_data("doesn't start with non-terminal".to_string())
     })?;
 
-    let rule_id = grammar_table.add_symbol_mut(lhs_symbol);
-    let rule_ref = SymbolRef::from(rule_id);
-    let mut rule = RuleRef::new_unchecked(rule_ref, vec![]);
+    let production_id = grammar_table.add_non_terminal_mut(lhs_non_terminal);
+    let production_ref = NonTerminalRef::from(production_id);
+    let mut production = ProductionRef::new_unchecked(production_ref, vec![]);
 
-    // add tokens and fill the rule.
+    // add terminals and fill the production.
     for elem in rhs {
-        if let Some(symbol) = symbol_value_from_str(elem) {
+        if let Some(non_terminal) = non_terminal_value_from_str(elem) {
             let symbol_id = {
-                let symbol_id = grammar_table.add_symbol_mut(symbol);
-                let symbol_ref = SymbolRef::new(symbol_id);
+                let non_terminal_id = grammar_table.add_non_terminal_mut(non_terminal);
+                let non_terminal_ref = NonTerminalRef::new(non_terminal_id);
 
-                SymbolOrTokenRef::Symbol(symbol_ref)
+                SymbolRef::NonTerminal(non_terminal_ref)
             };
-            rule.rhs.push(symbol_id);
-        // validate all token values are single length.
-        } else if let Some(token) = token_value_from_str(elem) {
-            let token_id = {
-                let token_id = grammar_table.add_token_mut(token);
-                let token_ref = TokenRef::from(token_id);
+            production.rhs.push(symbol_id);
+        // validate all terminal values are single length.
+        } else if let Some(terminal) = terminal_value_from_str(elem) {
+            let terminal_id = {
+                let terminal_id = grammar_table.add_terminal_mut(terminal);
+                let terminal_ref = TerminalRef::from(terminal_id);
 
-                SymbolOrTokenRef::Token(token_ref)
+                SymbolRef::Terminal(terminal_ref)
             };
-            rule.rhs.push(token_id);
+            production.rhs.push(terminal_id);
         } else {
-            return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-                .with_data(format!("invalid rhs value ({})", elem)));
+            return Err(
+                GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
+                    .with_data(format!("invalid rhs value ({})", elem)),
+            );
         }
     }
 
-    if grammar_table.rules.contains(&rule) {
-        return Err(GrammarLoadError::new(GrammarLoadErrorKind::ConflictingRule)
-            .with_data(format!("{} ", &rule)));
-    } else if !rule.is_valid() {
-        return Err(GrammarLoadError::new(GrammarLoadErrorKind::InvalidRule)
-            .with_data(format!("{} ", &rule)));
+    if grammar_table.productions.contains(&production) {
+        return Err(
+            GrammarLoadError::new(GrammarLoadErrorKind::ConflictingProduction)
+                .with_data(format!("{} ", &production)),
+        );
+    } else if !production.is_valid() {
+        return Err(
+            GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
+                .with_data(format!("{} ", &production)),
+        );
     } else {
-        grammar_table.add_rule_mut(rule);
+        grammar_table.add_production_mut(production);
         Ok(())
     }
 }
@@ -630,14 +650,14 @@ pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoad
         .enumerate()
         .map(|(lineno, line)| (lineno + 1, line));
 
-    let lines_containing_rules = lines
+    let lines_containing_productions = lines
         // ignore commented lines.
         .filter(|(_, line)| !line.starts_with(';'))
         // ignore empty lines.
         .filter(|(_, line)| !line.chars().all(|c| c.is_whitespace()));
 
-    for (lineno, line) in lines_containing_rules {
-        define_rule_mut(&mut grammar_table, line).map_err(|e| match e.data {
+    for (lineno, line) in lines_containing_productions {
+        define_production_mute(&mut grammar_table, line).map_err(|e| match e.data {
             Some(data) => {
                 let line_annotated_data = format!("lineno {}: {}", lineno, data);
                 GrammarLoadError::new(e.kind).with_data(line_annotated_data)
@@ -648,32 +668,32 @@ pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoad
 
     // add the first production to the goal.
     let root_production = grammar_table
-        .rules()
+        .productions()
         .next()
-        .map(|rule_ref| rule_ref.lhs)
+        .map(|production_ref| production_ref.lhs)
         .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
     let first_non_root_production = grammar_table
-        .rules()
+        .productions()
         .nth(1)
-        .map(|rule_ref| rule_ref.lhs)
-        .map(SymbolOrTokenRef::Symbol)
+        .map(|production_ref| production_ref.lhs)
+        .map(SymbolRef::NonTerminal)
         .ok_or_else(|| GrammarLoadError::new(GrammarLoadErrorKind::NoTerminalProduction))?;
 
-    grammar_table.rules[root_production.as_usize()]
+    grammar_table.productions[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
 
     Ok(grammar_table)
 }
 
-fn symbol_value_from_str(value: &str) -> Option<&str> {
+fn non_terminal_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
 
     let is_wrapped = trimmed_value.starts_with('<') && trimmed_value.ends_with('>');
     let is_not_empty = trimmed_value.len() > 2;
-    let is_builtin = BuiltinTokens::is_builtin(trimmed_value);
+    let is_builtin = BuiltinTerminals::is_builtin(trimmed_value);
 
-    // guarantee that it's a symbol and that it's not just an empty symbol `<>`
+    // guarantee that it's a non_terminal and that it's not just an empty symbol `<>`
     if is_wrapped && is_not_empty && !is_builtin {
         Some(trimmed_value)
     } else {
@@ -681,7 +701,7 @@ fn symbol_value_from_str(value: &str) -> Option<&str> {
     }
 }
 
-fn token_value_from_str(value: &str) -> Option<&str> {
+fn terminal_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
 
     Some(trimmed_value)
@@ -705,14 +725,14 @@ mod tests {
     fn should_parse_table_with_valid_test_grammar() {
         let grammar_table = load_grammar(TEST_GRAMMAR).unwrap();
 
-        assert_eq!(2, grammar_table.symbols.len());
+        assert_eq!(2, grammar_table.non_terminals.len());
         // 3 builtins plus `(` and `)`
-        assert_eq!(5, grammar_table.tokens.len());
-        assert_eq!(7, grammar_table.rules.len());
+        assert_eq!(5, grammar_table.terminals.len());
+        assert_eq!(7, grammar_table.productions.len());
     }
 
     #[test]
-    fn should_error_on_conflicting_rule() {
+    fn should_error_on_conflicting_production() {
         let res = load_grammar(
             "
 <expr> ::= ( <expr> )
@@ -722,13 +742,13 @@ mod tests {
         );
 
         assert_eq!(
-            Err(GrammarLoadErrorKind::ConflictingRule),
+            Err(GrammarLoadErrorKind::ConflictingProduction),
             res.map_err(|e| e.kind)
         );
     }
 
     #[test]
-    fn should_iterate_symbols_in_order() {
+    fn should_iterate_non_termials_in_order() {
         let grammar = "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
@@ -736,19 +756,19 @@ mod tests {
         ";
         let grammar_table = load_grammar(grammar).unwrap();
 
-        let mut symbol_iter = grammar_table.symbols();
+        let mut non_terminal_iter = grammar_table.non_terminals();
 
         assert_eq!(
-            Some(Symbol(BuiltinSymbols::Goal.as_symbol())),
-            symbol_iter.next()
+            Some(NonTerminal(BuiltinNonTerminals::Goal.as_non_terminals())),
+            non_terminal_iter.next()
         );
-        assert_eq!(Some(Symbol("<expr>")), symbol_iter.next());
-        assert_eq!(Some(Symbol("<addition>")), symbol_iter.next());
-        assert_eq!(None, symbol_iter.next());
+        assert_eq!(Some(NonTerminal("<expr>")), non_terminal_iter.next());
+        assert_eq!(Some(NonTerminal("<addition>")), non_terminal_iter.next());
+        assert_eq!(None, non_terminal_iter.next());
     }
 
     #[test]
-    fn should_iterate_tokens_in_order() {
+    fn should_iterate_terminals_in_order() {
         let grammar = "
 <expr> ::= ( <expr> )
 <expr> ::= <addition>
@@ -756,14 +776,14 @@ mod tests {
         ";
         let grammar_table = load_grammar(grammar).unwrap();
 
-        let mut token_iter = grammar_table
-            .tokens()
+        let mut terminal_iter = grammar_table
+            .terminals()
             // strip out the builtins for the sake of testing.
-            .filter(|token| !token.0.starts_with('<'));
+            .filter(|terminal| !terminal.0.starts_with('<'));
 
-        assert_eq!(Some(Token("(")), token_iter.next());
-        assert_eq!(Some(Token(")")), token_iter.next());
-        assert_eq!(Some(Token("+")), token_iter.next());
-        assert_eq!(None, token_iter.next());
+        assert_eq!(Some(Terminal("(")), terminal_iter.next());
+        assert_eq!(Some(Terminal(")")), terminal_iter.next());
+        assert_eq!(Some(Terminal("+")), terminal_iter.next());
+        assert_eq!(None, terminal_iter.next());
     }
 }

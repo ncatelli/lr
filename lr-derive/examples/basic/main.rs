@@ -56,7 +56,7 @@ fn reduce_e_unary_non_term(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal
         Ok(NonTerminal::E(Box::new(non_term_kind)))
     } else {
         Err(format!(
-            "expected non-terminal at top of stack in rule 3 reducer.",
+            "expected non-terminal at top of stack in production 3 reducer.",
         ))
     }
 }
@@ -70,7 +70,7 @@ fn reduce_e_binary_non_term(
     let optional_term = elems.pop();
     let optional_lhs = elems.pop();
     let err_msg = format!(
-        "expected 3 elements at top of stack in rule {} reducer. got [{:?}, {:?}, {:?}]",
+        "expected 3 elements at top of stack in production {} reducer. got [{:?}, {:?}, {:?}]",
         production_id, &optional_lhs, &optional_term, &optional_rhs
     );
 
@@ -94,12 +94,12 @@ fn reduce_e_binary_non_term(
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal {
     #[goal(r"<E>", reduce_e_unary_non_term)]
-    #[rule(r"<E> Terminal::Star <B>", |elems| { reduce_e_binary_non_term(2, elems) })]
-    #[rule(r"<E> Terminal::Plus <B>", |elems| { reduce_e_binary_non_term(3, elems) })]
-    #[rule(r"<B>", reduce_e_unary_non_term)]
+    #[production(r"<E> Terminal::Star <B>", |elems| { reduce_e_binary_non_term(2, elems) })]
+    #[production(r"<E> Terminal::Plus <B>", |elems| { reduce_e_binary_non_term(3, elems) })]
+    #[production(r"<B>", reduce_e_unary_non_term)]
     E(Box<NonTermKind>),
-    #[rule(r"Terminal::Zero", reduce_b_non_term)]
-    #[rule(r"Terminal::One", reduce_b_non_term)]
+    #[production(r"Terminal::Zero", reduce_b_non_term)]
+    #[production(r"Terminal::One", reduce_b_non_term)]
     B(Terminal),
 }
 
@@ -108,7 +108,7 @@ fn main() {
     let tokenizer = token_stream_from_input(input)
         .unwrap()
         .map(|token| token.to_variant())
-        .take_while(|token| !matches!(&token, &Terminal::Eof))
+        .take_while(|terminal| !matches!(&terminal, &Terminal::Eof))
         // append a single eof.
         .chain([Terminal::Eof].into_iter());
 
