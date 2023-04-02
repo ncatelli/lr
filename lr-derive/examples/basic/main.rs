@@ -1,8 +1,8 @@
 use lr_core::TerminalOrNonTerminal;
 pub use lr_derive::Lr1;
-pub use relex_derive::Relex;
+pub use relex_derive::{Relex, VariantKind};
 
-#[derive(Relex, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Relex, VariantKind, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terminal {
     #[matches(r"+")]
     Plus,
