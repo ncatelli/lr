@@ -54,6 +54,19 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// A trait for flagging that a type can be represented as a terminal in a
+/// generated parser.
+pub trait TerminalRepresentable
+where
+    Self::Repr: std::fmt::Debug + Copy + Eq,
+{
+    /// A copyable representation for uses in internal matching.
+    type Repr;
+
+    /// The end of file terminal
+    fn eof() -> Self::Repr;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalOrNonTerminal<T, NT> {
     Terminal(T),
