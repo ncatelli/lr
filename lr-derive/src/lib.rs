@@ -785,11 +785,11 @@ fn codegen(
         #[allow(unused)]
         pub fn lr_parse_input<S>(input: S) -> Result<#nonterminal_identifier, String>
         where
-            S: AsRef<[#terminal_identifier]>
+            S: IntoIterator<Item=#terminal_identifier>
         {
             use lr_core::lr::{Action, ProductionId, StateId};
 
-            let mut input = input.as_ref().into_iter().copied().peekable();
+            let mut input = input.into_iter().peekable();
             let mut parse_ctx = ParseContext::default();
             parse_ctx.push_state_mut(0);
 

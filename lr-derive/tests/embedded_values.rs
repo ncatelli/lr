@@ -2,7 +2,7 @@ use lr_core::{TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
 pub use relex_derive::{Relex, VariantKind};
 
-#[derive(VariantKind, Relex, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(VariantKind, Relex, Debug, Clone, PartialEq, Eq)]
 pub enum Terminal {
     #[matches(r"+")]
     Plus,
@@ -122,8 +122,7 @@ fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
         // append a single eof.
         .chain([Terminal::Eof].into_iter());
 
-    let input_stream = tokenizer.collect::<Vec<_>>();
-    let parse_tree = lr_parse_input(&input_stream);
+    let parse_tree = lr_parse_input(tokenizer);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
         NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::Int(10))))),
