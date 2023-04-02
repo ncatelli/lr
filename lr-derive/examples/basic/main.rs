@@ -1,4 +1,4 @@
-use lr_core::TerminalOrNonTerminal;
+use lr_core::{TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
 pub use relex_derive::{Relex, VariantKind};
 
@@ -27,6 +27,15 @@ impl std::fmt::Display for Terminal {
         };
 
         write!(f, "{}", repr)
+    }
+}
+
+impl TerminalRepresentable for Terminal {
+    /// the associated type representing the variant kind.
+    type Repr = <Self as VariantKindRepresentable>::Output;
+
+    fn eof() -> Self::Repr {
+        Self::Repr::Eof
     }
 }
 
