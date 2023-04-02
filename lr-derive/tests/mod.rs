@@ -116,7 +116,8 @@ pub enum NonTerminal {
     B(Terminal),
 }
 
-fn main() {
+#[test]
+fn derived_macro_generator_functionality_test() {
     let input = "1 + 0";
     let tokenizer = token_stream_from_input(input)
         .unwrap()

@@ -464,16 +464,16 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
              }| {
                 let lookahead_repr = lookahead.as_ref();
 
-                // TODO: Need to come up with a better fix for this hack.
-                let eof_terminal_variant_repr = if lookahead_repr.starts_with("<$>") {
-                    panic!("!")
-                } else if lookahead_repr.contains("::") {
+                let terminal_variant_repr = if lookahead_repr.contains("::") {
                     lookahead.as_ref().split("::").last().unwrap()
                 } else {
                     lookahead_repr
                 };
 
-                let terminal_repr = format_ident!("{}", eof_terminal_variant_repr);
+                // format the variant as an ident.
+                let terminal_repr = format_ident!("{}", terminal_variant_repr);
+
+                // generate the corresponding action representation for each possible state.
                 let action_stream = match action {
                     Action::Accept => quote!(Action::Accept),
                     Action::Shift(state) => {
@@ -487,15 +487,19 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     Action::DeadState => quote!(Action::DeadState),
                 };
 
+                // matches on the terminal's representation, hence the wordy
+                // tuple rhs. This casts the type to it's associated
+                // Repr type, which _should_ align with the shown value.
                 quote!(
-                    (#state_id, #terminal_ident::#terminal_repr) => Ok(#action_stream),
+                    (#state_id, <#terminal_ident as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
                 )
             },
         );
 
         let variants = variants.collect::<TokenStream>();
         let action_matcher_stream = quote!(
-            let action = match (current_state, next_term) {
+            // the current state and the copyable representation of the terminal.
+            let action = match (current_state, next_term_repr) {
                 #variants
                 _ => Err(format!(
                     "unknown parser error with: {:?}",
@@ -578,8 +582,8 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     Ok(())
                 }
                 Action::DeadState => Err(format!(
-                    "unexpected input {} for state {}",
-                    input.peek().unwrap_or(&Terminal::Eof),
+                    "unexpected input {:?} for state {}",
+                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_ident::eof),
                     current_state
                 )),
                 Action::Accept => {
@@ -779,10 +783,13 @@ fn codegen(
 
     let parser_fn_stream = quote!(
         #[allow(unused)]
-        pub fn lr_parse_input<T: AsRef<[Terminal]>>(input: T) -> Result<NonTerminal, String> {
+        pub fn lr_parse_input<S>(input: S) -> Result<#nonterminal_identifier, String>
+        where
+            S: AsRef<[#terminal_identifier]>
+        {
             use lr_core::lr::{Action, ProductionId, StateId};
 
-            let mut input = input.as_ref().iter().copied().peekable();
+            let mut input = input.as_ref().into_iter().copied().peekable();
             let mut parse_ctx = ParseContext::default();
             parse_ctx.push_state_mut(0);
 
@@ -791,7 +798,7 @@ fn codegen(
                     .pop_state_mut()
                     .ok_or_else(|| "state stack is empty".to_string())?;
 
-                let next_term = input.peek().unwrap_or(&Terminal::Eof);
+                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_identifier::eof);
                 #action_matcher_codegen
             }
         }

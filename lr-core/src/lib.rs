@@ -56,12 +56,14 @@ impl std::fmt::Display for Error {
 
 /// A trait for flagging that a type can be represented as a terminal in a
 /// generated parser.
-pub trait TerminalRepresentable
+pub trait TerminalRepresentable: std::fmt::Debug
 where
     Self::Repr: std::fmt::Debug + Copy + Eq,
 {
     /// A copyable representation for uses in internal matching.
     type Repr;
+
+    fn to_variant_repr(&self) -> Self::Repr;
 
     /// The end of file terminal
     fn eof() -> Self::Repr;
