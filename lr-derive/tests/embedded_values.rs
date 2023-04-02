@@ -8,8 +8,8 @@ pub enum Terminal {
     Plus,
     #[matches(r"*")]
     Star,
-	#[matches(r"[0-9]+", |lex: &str| { lex.parse::<i64>().ok() })]
-	Int(i64),
+    #[matches(r"[0-9]+", |lex: &str| { lex.parse::<i64>().ok() })]
+    Int(i64),
     #[eoi]
     Eof,
 }
@@ -19,7 +19,7 @@ impl std::fmt::Display for Terminal {
         let repr = match self {
             Self::Plus => "+".to_string(),
             Self::Star => "*".to_string(),
-			Self::Int(i) => format!("{}", i),
+            Self::Int(i) => format!("{}", i),
             Self::Eof => "<$>".to_string(),
         };
 
@@ -125,7 +125,9 @@ fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
     let parse_tree = lr_parse_input(tokenizer);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
-        NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::Int(10))))),
+        NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::Int(
+            10,
+        ))))),
         NonTerminal::B(Terminal::Int(1)),
     )));
 
