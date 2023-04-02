@@ -448,7 +448,7 @@ impl<'a> ActionMatcherCodeGen<'a> {
 
 impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let terminal_ident = self.terminal_identifier;
+        let terminal_identifier = self.terminal_identifier;
         let filtered_actions = self
             .action_table_variants
             .clone()
@@ -491,7 +491,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                 // tuple rhs. This casts the type to it's associated
                 // Repr type, which _should_ align with the shown value.
                 quote!(
-                    (#state_id, <#terminal_ident as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
+                    (#state_id, <#terminal_identifier as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
                 )
             },
         );
@@ -583,7 +583,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                 }
                 Action::DeadState => Err(format!(
                     "unexpected input {:?} for state {}",
-                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_ident::eof),
+                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_identifier::eof),
                     current_state
                 )),
                 Action::Accept => {
@@ -837,11 +837,11 @@ pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         .terminal_ident()
         .map(|t| format_ident!("{}", t))
         .unwrap();
-    let non_terminal_ident = annotated_enum.enum_ident;
+    let non_terminal_identifier = annotated_enum.enum_ident;
 
     codegen(
         &term_ident,
-        &non_terminal_ident,
+        &non_terminal_identifier,
         &reducible_grammar_table,
         &state_table,
     )
