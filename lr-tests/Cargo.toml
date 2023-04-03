@@ -1,0 +1,10 @@
+[package]
+name = "lr-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+regex-runtime = { git = "https://github.com/ncatelli/regex", branch = "main" }
+relex-derive = { git = "https://github.com/ncatelli/relex", branch = "main" }
+lr-core = { path = "../lr-core" }
+lr-derive = { path = "../lr-derive" }
