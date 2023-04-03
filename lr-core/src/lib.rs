@@ -1,5 +1,3 @@
-use grammar::GrammarLoadError;
-
 pub mod grammar;
 pub mod lr;
 
@@ -11,7 +9,7 @@ pub enum GeneratorKind {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ErrorKind {
-    GrammarError(GrammarLoadError),
+    GrammarError(grammar::GrammarLoadError),
     TableGenerationError(lr::TableGenError),
 }
 
@@ -24,6 +22,8 @@ impl std::fmt::Display for ErrorKind {
     }
 }
 
+/// A top-level error type for wrapping both grammar parsing and table
+/// generation errors.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Error {
     kind: ErrorKind,
@@ -35,11 +35,17 @@ impl Error {
         Self { kind, data: None }
     }
 
-    pub fn with_data_mut(&mut self, data: String) {
+    /// Allows a caller to enrich an error with a string signifying additional
+    /// information about the error.
+    pub fn with_data_mut<S: AsRef<str>>(&mut self, data: S) {
+        let data = data.as_ref().to_string();
+
         self.data = Some(data)
     }
 
-    pub fn with_data(mut self, data: String) -> Self {
+    /// Allows a caller to enrich an error with a string signifying additional
+    /// information about the error.
+    pub fn with_data<S: AsRef<str>>(mut self, data: S) -> Self {
         self.with_data_mut(data);
         self
     }

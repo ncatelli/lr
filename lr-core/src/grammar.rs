@@ -560,11 +560,13 @@ impl GrammarLoadError {
         Self { kind, data: None }
     }
 
-    pub(crate) fn with_data_mut(&mut self, data: String) {
+    pub(crate) fn with_data_mut<S: AsRef<str>>(&mut self, data: S) {
+        let data = data.as_ref().to_string();
+
         self.data = Some(data)
     }
 
-    pub(crate) fn with_data(mut self, data: String) -> Self {
+    pub(crate) fn with_data<S: AsRef<str>>(mut self, data: S) -> Self {
         self.with_data_mut(data);
         self
     }
@@ -590,7 +592,7 @@ pub fn define_production_mut<S: AsRef<str>>(
     if !trimmed_line.starts_with('<') {
         return Err(
             GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
-                .with_data("doesn't start with a non-terminal".to_string()),
+                .with_data("doesn't start with a non-terminal"),
         );
     }
 
@@ -599,7 +601,7 @@ pub fn define_production_mut<S: AsRef<str>>(
     if split_line.len() != 2 {
         return Err(
             GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
-                .with_data("does not contain right-hand side".to_string()),
+                .with_data("does not contain right-hand side"),
         );
     }
 
@@ -615,7 +617,7 @@ pub fn define_production_mut<S: AsRef<str>>(
     // retrieve the LHS non-terminal.
     let lhs_non_terminal = non_terminal_value_from_str(lhs).ok_or_else(|| {
         GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
-            .with_data("doesn't start with non-terminal".to_string())
+            .with_data("doesn't start with non-terminal")
     })?;
 
     let production_id = grammar_table.add_non_terminal_mut(lhs_non_terminal);

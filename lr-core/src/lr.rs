@@ -29,11 +29,13 @@ impl TableGenError {
         Self { kind, data: None }
     }
 
-    pub(crate) fn with_data_mut(&mut self, data: String) {
+    pub(crate) fn with_data_mut<S: AsRef<str>>(&mut self, data: S) {
+        let data = data.as_ref().to_string();
+
         self.data = Some(data)
     }
 
-    pub(crate) fn with_data(mut self, data: String) -> Self {
+    pub(crate) fn with_data<S: AsRef<str>>(mut self, data: S) -> Self {
         self.with_data_mut(data);
         self
     }
