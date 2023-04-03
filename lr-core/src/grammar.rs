@@ -1,5 +1,6 @@
 use std::collections::hash_map::HashMap;
 
+/// A predefined set of reserved non-terminals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinNonTerminals {
     Goal,
@@ -13,6 +14,7 @@ impl BuiltinNonTerminals {
     }
 }
 
+/// A predefined set of reserved terminals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinTerminals {
     Epsilon,
@@ -21,6 +23,8 @@ pub enum BuiltinTerminals {
 }
 
 impl BuiltinTerminals {
+    /// Returns a boolean signifying if a given string representation of a
+    /// terminal matches one of the builtin terminals.
     pub fn is_builtin<S: AsRef<str>>(terminal: S) -> bool {
         let val = terminal.as_ref();
         [Self::Epsilon, Self::Eof, Self::EndL]
@@ -38,6 +42,7 @@ impl BuiltinTerminals {
     }
 }
 
+/// An enum for storing a symbol within a given grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Symbol<'a> {
     NonTerminal(NonTerminal<'a>),
@@ -111,6 +116,7 @@ impl std::fmt::Display for TerminalRef {
     }
 }
 
+/// An enum for storing a symbol reference id within a given grammar.
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolRef {
     NonTerminal(NonTerminalRef),
@@ -126,9 +132,12 @@ impl std::fmt::Display for SymbolRef {
     }
 }
 
+/// A structure representing a grammar production. Containing valid references to a
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct ProductionRef {
+    /// The left-hand side symbol of a production
     pub lhs: NonTerminalRef,
+    /// One or more right-hand side symbols of a production.
     pub rhs: Vec<SymbolRef>,
 }
 
@@ -242,6 +251,9 @@ impl<'a> std::fmt::Display for Terminal<'a> {
     }
 }
 
+/// A representation of all symbols, and productions of a given grammar. This
+/// type functions as a source of truth for both human readable rendering and
+/// state machine generation.
 #[derive(Debug, Default, PartialEq)]
 pub struct GrammarTable {
     non_terminals: HashMap<String, usize>,
@@ -284,6 +296,8 @@ impl GrammarTable {
         self.productions.push(production);
     }
 
+    /// Allocates, if not defined, and assigns a given terminal representation
+    /// as the End-of-file delimiter for a grammar.
     pub fn declare_eof_terminal<T: AsRef<str>>(
         &mut self,
         terminal: T,
@@ -296,6 +310,7 @@ impl GrammarTable {
         Ok(terminal_id)
     }
 
+    /// Returns a reference to the end-of-file terminal for a grammar.
     pub fn eof_terminal_ref(&self) -> TerminalRef {
         match self.eof_terminal_ref {
             Some(eof_tok) => eof_tok,
@@ -303,10 +318,12 @@ impl GrammarTable {
         }
     }
 
+    /// Returns an iterator over all non-terminal symbols in a given grammar.
     pub fn non_terminals(&self) -> NonTerminalIterator {
         NonTerminalIterator::new(self)
     }
 
+    /// Returns an iterator over all terminal symbols in a given grammar.
     pub fn terminals(&self) -> TerminalIterator {
         TerminalIterator::new(self)
     }
@@ -333,6 +350,7 @@ impl GrammarTable {
             .unwrap()
     }
 
+    /// Returns an iterator over all productions in a given grammar.
     pub fn productions(&self) -> impl Iterator<Item = &ProductionRef> {
         self.productions.iter()
     }
@@ -503,9 +521,15 @@ impl<'a> Iterator for TerminalIterator<'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum GrammarLoadErrorKind {
+    /// Represents a grammar without a terminating (goal) production.
     NoTerminalProduction,
+    /// An invalid production was defined.
     InvalidProduction,
+    /// Represents any error arising from two conflicting, often identical,
+    /// productions being defined on a grammar.
     ConflictingProduction,
+    /// Any error stemming from an invalid or unknown terminal symbol
+    /// representation.
     InvalidTerminal,
 }
 
@@ -524,6 +548,7 @@ impl std::fmt::Display for GrammarLoadErrorKind {
     }
 }
 
+/// An error type representing any error arising while defining a grammar.
 #[derive(Debug, PartialEq, Eq)]
 pub struct GrammarLoadError {
     kind: GrammarLoadErrorKind,
@@ -531,15 +556,17 @@ pub struct GrammarLoadError {
 }
 
 impl GrammarLoadError {
-    pub fn new(kind: GrammarLoadErrorKind) -> Self {
+    pub(crate) fn new(kind: GrammarLoadErrorKind) -> Self {
         Self { kind, data: None }
     }
 
-    pub fn with_data_mut(&mut self, data: String) {
+    pub(crate) fn with_data_mut<S: AsRef<str>>(&mut self, data: S) {
+        let data = data.as_ref().to_string();
+
         self.data = Some(data)
     }
 
-    pub fn with_data(mut self, data: String) -> Self {
+    pub(crate) fn with_data<S: AsRef<str>>(mut self, data: S) -> Self {
         self.with_data_mut(data);
         self
     }
@@ -554,7 +581,8 @@ impl std::fmt::Display for GrammarLoadError {
     }
 }
 
-pub fn define_production_mute<S: AsRef<str>>(
+/// A function for defining productions on a grammar individually.
+pub fn define_production_mut<S: AsRef<str>>(
     grammar_table: &mut GrammarTable,
     line: S,
 ) -> Result<(), GrammarLoadError> {
@@ -564,7 +592,7 @@ pub fn define_production_mute<S: AsRef<str>>(
     if !trimmed_line.starts_with('<') {
         return Err(
             GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
-                .with_data("doesn't start with a non-terminal".to_string()),
+                .with_data("doesn't start with a non-terminal"),
         );
     }
 
@@ -573,7 +601,7 @@ pub fn define_production_mute<S: AsRef<str>>(
     if split_line.len() != 2 {
         return Err(
             GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
-                .with_data("does not contain right-hand side".to_string()),
+                .with_data("does not contain right-hand side"),
         );
     }
 
@@ -589,7 +617,7 @@ pub fn define_production_mute<S: AsRef<str>>(
     // retrieve the LHS non-terminal.
     let lhs_non_terminal = non_terminal_value_from_str(lhs).ok_or_else(|| {
         GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
-            .with_data("doesn't start with non-terminal".to_string())
+            .with_data("doesn't start with non-terminal")
     })?;
 
     let production_id = grammar_table.add_non_terminal_mut(lhs_non_terminal);
@@ -639,6 +667,7 @@ pub fn define_production_mute<S: AsRef<str>>(
     }
 }
 
+/// A function for loading a single text representation of a grammar in one pass.
 pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
     let mut grammar_table =
         DefaultInitializedWithGoalProductionGrammarTableBuilder::initialize_table();
@@ -657,7 +686,7 @@ pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoad
         .filter(|(_, line)| !line.chars().all(|c| c.is_whitespace()));
 
     for (lineno, line) in lines_containing_productions {
-        define_production_mute(&mut grammar_table, line).map_err(|e| match e.data {
+        define_production_mut(&mut grammar_table, line).map_err(|e| match e.data {
             Some(data) => {
                 let line_annotated_data = format!("lineno {}: {}", lineno, data);
                 GrammarLoadError::new(e.kind).with_data(line_annotated_data)
@@ -686,6 +715,9 @@ pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoad
     Ok(grammar_table)
 }
 
+/// Validates a non-terminal str representation conforms to conventions defined
+/// within the grammar table. Returning a None value if the passed str doesn't
+/// conform.
 fn non_terminal_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
 
@@ -701,6 +733,9 @@ fn non_terminal_value_from_str(value: &str) -> Option<&str> {
     }
 }
 
+/// Validates a terminal str representation conforms to conventions defined
+/// within the grammar table. Returning a None value if the passed str doesn't
+/// conform.
 fn terminal_value_from_str(value: &str) -> Option<&str> {
     let trimmed_value = value.trim();
 

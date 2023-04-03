@@ -1,2 +1,2 @@
 [workspace]
-members = ["lr-core", "lr-derive"]
+members = ["lr-core", "lr-derive", "lr-tests"]

@@ -272,7 +272,7 @@ fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
     use lr_core::grammar::{
-        define_production_mute, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
+        define_production_mut, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
     };
 
     let eof_terminal = "Terminal::Eof";
@@ -307,7 +307,7 @@ fn generate_grammer_table_from_annotated_enum(
         let line = format!("<*> ::= {}", rhs);
         let reducer = gam.reducer.clone();
 
-        define_production_mute(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        define_production_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     } else {
         return Err("No goal production defined".to_string());
@@ -318,7 +318,7 @@ fn generate_grammer_table_from_annotated_enum(
         let line = format!("<{}> ::= {}", non_terminal, rhs);
         let reducer = ram.reducer.clone();
 
-        define_production_mute(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        define_production_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     }
 
@@ -448,7 +448,7 @@ impl<'a> ActionMatcherCodeGen<'a> {
 
 impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let terminal_ident = self.terminal_identifier;
+        let terminal_identifier = self.terminal_identifier;
         let filtered_actions = self
             .action_table_variants
             .clone()
@@ -464,16 +464,16 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
              }| {
                 let lookahead_repr = lookahead.as_ref();
 
-                // TODO: Need to come up with a better fix for this hack.
-                let eof_terminal_variant_repr = if lookahead_repr.starts_with("<$>") {
-                    panic!("!")
-                } else if lookahead_repr.contains("::") {
+                let terminal_variant_repr = if lookahead_repr.contains("::") {
                     lookahead.as_ref().split("::").last().unwrap()
                 } else {
                     lookahead_repr
                 };
 
-                let terminal_repr = format_ident!("{}", eof_terminal_variant_repr);
+                // format the variant as an ident.
+                let terminal_repr = format_ident!("{}", terminal_variant_repr);
+
+                // generate the corresponding action representation for each possible state.
                 let action_stream = match action {
                     Action::Accept => quote!(Action::Accept),
                     Action::Shift(state) => {
@@ -487,15 +487,19 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     Action::DeadState => quote!(Action::DeadState),
                 };
 
+                // matches on the terminal's representation, hence the wordy
+                // tuple rhs. This casts the type to it's associated
+                // Repr type, which _should_ align with the shown value.
                 quote!(
-                    (#state_id, #terminal_ident::#terminal_repr) => Ok(#action_stream),
+                    (#state_id, <#terminal_identifier as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
                 )
             },
         );
 
         let variants = variants.collect::<TokenStream>();
         let action_matcher_stream = quote!(
-            let action = match (current_state, next_term) {
+            // the current state and the copyable representation of the terminal.
+            let action = match (current_state, next_term_repr) {
                 #variants
                 _ => Err(format!(
                     "unknown parser error with: {:?}",
@@ -578,8 +582,8 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     Ok(())
                 }
                 Action::DeadState => Err(format!(
-                    "unexpected input {} for state {}",
-                    input.peek().unwrap_or(&Terminal::Eof),
+                    "unexpected input {:?} for state {}",
+                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_identifier::eof),
                     current_state
                 )),
                 Action::Accept => {
@@ -779,10 +783,13 @@ fn codegen(
 
     let parser_fn_stream = quote!(
         #[allow(unused)]
-        pub fn lr_parse_input<T: AsRef<[Terminal]>>(input: T) -> Result<NonTerminal, String> {
+        pub fn lr_parse_input<S>(input: S) -> Result<#nonterminal_identifier, String>
+        where
+            S: IntoIterator<Item=#terminal_identifier>
+        {
             use lr_core::lr::{Action, ProductionId, StateId};
 
-            let mut input = input.as_ref().iter().copied().peekable();
+            let mut input = input.into_iter().peekable();
             let mut parse_ctx = ParseContext::default();
             parse_ctx.push_state_mut(0);
 
@@ -791,7 +798,7 @@ fn codegen(
                     .pop_state_mut()
                     .ok_or_else(|| "state stack is empty".to_string())?;
 
-                let next_term = input.peek().unwrap_or(&Terminal::Eof);
+                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_identifier::eof);
                 #action_matcher_codegen
             }
         }
@@ -830,11 +837,11 @@ pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         .terminal_ident()
         .map(|t| format_ident!("{}", t))
         .unwrap();
-    let non_terminal_ident = annotated_enum.enum_ident;
+    let non_terminal_identifier = annotated_enum.enum_ident;
 
     codegen(
         &term_ident,
-        &non_terminal_ident,
+        &non_terminal_identifier,
         &reducible_grammar_table,
         &state_table,
     )
