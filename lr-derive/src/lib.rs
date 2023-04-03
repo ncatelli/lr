@@ -272,7 +272,7 @@ fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
     use lr_core::grammar::{
-        define_production_mute, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
+        define_production_mut, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
     };
 
     let eof_terminal = "Terminal::Eof";
@@ -307,7 +307,7 @@ fn generate_grammer_table_from_annotated_enum(
         let line = format!("<*> ::= {}", rhs);
         let reducer = gam.reducer.clone();
 
-        define_production_mute(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        define_production_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     } else {
         return Err("No goal production defined".to_string());
@@ -318,7 +318,7 @@ fn generate_grammer_table_from_annotated_enum(
         let line = format!("<{}> ::= {}", non_terminal, rhs);
         let reducer = ram.reducer.clone();
 
-        define_production_mute(&mut grammar_table, line).map_err(|e| e.to_string())?;
+        define_production_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     }
 
