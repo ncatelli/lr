@@ -1,18 +1,13 @@
 use lr_core::{TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
-pub use relex_derive::{Relex, VariantKind};
 
-#[derive(VariantKind, Relex, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terminal {
-    #[matches(r"+")]
     Plus,
-    #[matches(r"*")]
+    #[allow(unused)]
     Star,
-    #[matches(r"0")]
     Zero,
-    #[matches(r"1")]
     One,
-    #[eoi]
     Eof,
 }
 
@@ -32,14 +27,14 @@ impl std::fmt::Display for Terminal {
 
 impl TerminalRepresentable for Terminal {
     /// the associated type representing the variant kind.
-    type Repr = <Self as VariantKindRepresentable>::Output;
+    type Repr = Self;
 
     fn eof() -> Self::Repr {
         Self::Repr::Eof
     }
 
     fn to_variant_repr(&self) -> Self::Repr {
-        self.to_variant_kind()
+        *self
     }
 }
 
@@ -118,13 +113,8 @@ pub enum NonTerminal {
 
 #[test]
 fn derived_macro_generator_functionality_test() {
-    let input = "1 + 0";
-    let tokenizer = token_stream_from_input(input)
-        .unwrap()
-        .map(|token| token.to_variant())
-        .take_while(|terminal| !matches!(&terminal, &Terminal::Eof))
-        // append a single eof.
-        .chain([Terminal::Eof].into_iter());
+    let input = [Terminal::One, Terminal::Plus, Terminal::Zero, Terminal::Eof];
+    let tokenizer = input.into_iter();
 
     let parse_tree = lr_parse_input(tokenizer);
 
