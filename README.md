@@ -1,6 +1,6 @@
 # lr
 
-A minimal LR parser generator framework designed to work alongside [relex](https://github.com/ncatelli/relex) to build LR parsers that tightly couple with built in types, namely enums. 
+A minimal LR parser generator framework designed to (optionally) work alongside [relex](https://github.com/ncatelli/relex) to build LR parsers that tightly couple with built in types, namely enums. 
 
 ## Examples
 Defining grammars on an enum can be handled at compile type by specifying a set of productions, and a goal on variants of an enum.
