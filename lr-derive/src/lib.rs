@@ -23,12 +23,6 @@ impl Production {
     }
 }
 
-impl Spanned for Production {
-    fn span(&self) -> Span {
-        self.0.span()
-    }
-}
-
 #[derive(Debug, Clone)]
 enum ReducerAction {
     Closure(ExprClosure),
@@ -89,20 +83,6 @@ struct GoalAttributeMetadata {
     reducer: ReducerAction,
 }
 
-impl Spanned for GoalAttributeMetadata {
-    fn span(&self) -> Span {
-        let production_span = self.production.span();
-        let action_span = match &self.reducer {
-            ReducerAction::Closure(closure) => closure.span(),
-            ReducerAction::Fn(fn_ident) => fn_ident.span(),
-        };
-
-        // Attempt to join the two spans or return the production_span if not
-        // possible
-        production_span.join(action_span).unwrap_or(production_span)
-    }
-}
-
 impl Parse for GoalAttributeMetadata {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let (production, reducer) = parse_attribute_metadata(input)?;
@@ -116,20 +96,6 @@ impl Parse for GoalAttributeMetadata {
 struct ProductionAttributeMetadata {
     production: Production,
     reducer: ReducerAction,
-}
-
-impl Spanned for ProductionAttributeMetadata {
-    fn span(&self) -> Span {
-        let production_span = self.production.span();
-        let action_span = match &self.reducer {
-            ReducerAction::Closure(closure) => closure.span(),
-            ReducerAction::Fn(fn_ident) => fn_ident.span(),
-        };
-
-        // Attempt to join the two spans or return the production_span if not
-        // possible
-        production_span.join(action_span).unwrap_or(production_span)
-    }
 }
 
 impl Parse for ProductionAttributeMetadata {
@@ -181,9 +147,9 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
             let variant_fields = variant.fields;
 
             let grammar_attributes = variant.attrs.iter().filter_map(|attr| {
-                if attr.path.is_ident("production") {
+                if attr.path().is_ident("production") {
                     Some((GrammarItemAttributeKind::Production, attr))
-                } else if attr.path.is_ident("goal") {
+                } else if attr.path().is_ident("goal") {
                     Some((GrammarItemAttributeKind::Goal, attr))
                 } else {
                     None
