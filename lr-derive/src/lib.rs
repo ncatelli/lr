@@ -676,6 +676,10 @@ impl<'a> ToTokens for ParserCtxCodeGen<'a> {
             }
 
             impl ParseContext {
+                const DEFAULT_STACK_SIZE: usize = 128;
+            }
+
+            impl ParseContext {
                 fn push_state_mut(&mut self, state_id: usize) {
                     self.state_stack.push(state_id)
                 }
@@ -698,8 +702,8 @@ impl<'a> ToTokens for ParserCtxCodeGen<'a> {
             impl Default for ParseContext {
                 fn default() -> Self {
                     Self {
-                        state_stack: vec![],
-                        element_stack: vec![],
+                        state_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
+                        element_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
                     }
                 }
             }
