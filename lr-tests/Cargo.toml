@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [[bench]]
-name = "simple_expression_parsing"
-path = "benches/simple_expression_parsing.rs"
+name = "nested_token_expression_parsing"
+path = "benches/nested_token_expression_parsing.rs"
 harness = false
 
 [dev-dependencies]
