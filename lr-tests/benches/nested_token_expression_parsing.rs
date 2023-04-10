@@ -225,30 +225,27 @@ fn parse_basic_expression(c: &mut Criterion) {
             Terminal::Eof,
         ];
 
-        /*
-        let expected = NonTerminal::Expr(Box::new(NonTerminal::Additive(Box::new(
-            AdditiveTermKind::Add(
-                NonTerminal::Additive(Box::new(AdditiveTermKind::Unary(
-                    NonTerminal::Multiplicative(Box::new(MultiplicativeTermKind::Div(
-                        NonTerminal::Multiplicative(Box::new(MultiplicativeTermKind::Unary(
-                            NonTerminal::Primary(Terminal::Int(10)),
-                        ))),
-                        NonTerminal::Primary(Terminal::Int(5)),
-                    ))),
-                ))),
-                NonTerminal::Multiplicative(Box::new(MultiplicativeTermKind::Unary(
-                    NonTerminal::Primary(Terminal::Int(1)),
-                ))),
-            ),
+        let expected = NonTerminal::Expr(Box::new(ExprInner::Binary(BinaryExpr::new(
+            NonTerminal::Additive(Box::new(ExprInner::Unary(UnaryExpr::new(
+                NonTerminal::Multiplicative(Box::new(ExprInner::Binary(BinaryExpr::new(
+                    NonTerminal::Multiplicative(Box::new(ExprInner::Unary(UnaryExpr::new(
+                        NonTerminal::Primary(Terminal::Int(10)),
+                    )))),
+                    BinaryOperator::Slash,
+                    NonTerminal::Primary(Terminal::Int(5)),
+                )))),
+            )))),
+            BinaryOperator::Plus,
+            NonTerminal::Multiplicative(Box::new(ExprInner::Unary(UnaryExpr::new(
+                NonTerminal::Primary(Terminal::Int(1)),
+            )))),
         ))));
 
         let expected = Ok(expected);
-        */
 
         b.iter(|| {
             let parse_tree = lr_parse_input(black_box((&token_stream).iter().copied()));
-            // assert_eq!(&parse_tree, &expected);
-            assert!(parse_tree.is_ok())
+            assert_eq!(&parse_tree, &expected);
         });
     });
 }
