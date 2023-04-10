@@ -3,6 +3,14 @@ name = "lr-tests"
 version = "0.1.0"
 edition = "2021"
 
+[[bench]]
+name = "simple_expression_parsing"
+path = "benches/simple_expression_parsing.rs"
+harness = false
+
+[dev-dependencies]
+criterion = "0.4"
+
 [dependencies]
 lr-core = { path = "../lr-core" }
 lr-derive = { path = "../lr-derive" }
