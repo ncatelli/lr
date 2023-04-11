@@ -55,18 +55,42 @@ impl TerminalRepresentable for Terminal {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum MultiplicativeTermKind {
-    Mul(NonTerminal, NonTerminal),
-    Div(NonTerminal, NonTerminal),
-    Unary(NonTerminal),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOperator {
+    Plus,
+    Minus,
+    Star,
+    Slash,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AdditiveTermKind {
-    Add(NonTerminal, NonTerminal),
-    Sub(NonTerminal, NonTerminal),
-    Unary(NonTerminal),
+pub struct BinaryExpr {
+    pub lhs: NonTerminal,
+    pub operator: BinaryOperator,
+    pub rhs: NonTerminal,
+}
+
+impl BinaryExpr {
+    pub fn new(lhs: NonTerminal, operator: BinaryOperator, rhs: NonTerminal) -> Self {
+        Self { lhs, operator, rhs }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct UnaryExpr {
+    pub lhs: NonTerminal,
+}
+
+impl UnaryExpr {
+    pub fn new(lhs: NonTerminal) -> Self {
+        Self { lhs }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ExprInner {
+    Unary(UnaryExpr),
+    Binary(BinaryExpr),
 }
 
 type TermOrNonTerm = TerminalOrNonTerminal<Terminal, NonTerminal>;
@@ -82,38 +106,33 @@ fn reduce_primary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String>
 
 #[allow(unused)]
 fn reduce_expr_unary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
-    if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
-        Ok(NonTerminal::Expr(Box::new(nonterm)))
+    // the only top level expr is an additive expr.
+    if let Some(TermOrNonTerm::NonTerminal(NonTerminal::Additive(inner))) = elems.pop() {
+        Ok(NonTerminal::Expr(inner))
     } else {
-        Err(format!(
-            "expected non-terminal at top of stack in production 3 reducer.",
-        ))
+        Err("expected non-terminal at top of stack in production 3 reducer.".to_string())
     }
 }
 
 #[allow(unused)]
 fn reduce_multiplicative_unary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
     if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
-        let non_term_kind = MultiplicativeTermKind::Unary(nonterm);
+        let inner = ExprInner::Unary(UnaryExpr::new(nonterm));
 
-        Ok(NonTerminal::Multiplicative(Box::new(non_term_kind)))
+        Ok(NonTerminal::Multiplicative(Box::new(inner)))
     } else {
-        Err(format!(
-            "expected non-terminal at top of stack in production 3 reducer.",
-        ))
+        Err("expected non-terminal at top of stack in production 3 reducer.".to_string())
     }
 }
 
 #[allow(unused)]
 fn reduce_additive_unary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
     if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
-        let non_term_kind = AdditiveTermKind::Unary(nonterm);
+        let inner = ExprInner::Unary(UnaryExpr::new(nonterm));
 
-        Ok(NonTerminal::Additive(Box::new(non_term_kind)))
+        Ok(NonTerminal::Additive(Box::new(inner)))
     } else {
-        Err(format!(
-            "expected non-terminal at top of stack in production 3 reducer.",
-        ))
+        Err("expected non-terminal at top of stack in production 3 reducer.".to_string())
     }
 }
 
@@ -125,25 +144,27 @@ fn reduce_multiplicative_binary(
     let optional_rhs = elems.pop();
     let optional_term = elems.pop();
     let optional_lhs = elems.pop();
-    let err_msg = format!(
-        "expected 3 elements at top of stack in production {} reducer. got [{:?}, {:?}, {:?}]",
-        production_id, &optional_lhs, &optional_term, &optional_rhs
-    );
 
     // reversed due to popping elements
     if let [Some(TermOrNonTerm::NonTerminal(lhs)), Some(TermOrNonTerm::Terminal(op)), Some(TerminalOrNonTerminal::NonTerminal(rhs))] =
         [optional_lhs, optional_term, optional_rhs]
     {
         let non_term_kind = match op {
-            Terminal::Star => MultiplicativeTermKind::Mul(lhs, rhs),
-            Terminal::Slash => MultiplicativeTermKind::Div(lhs, rhs),
+            Terminal::Star => BinaryOperator::Star,
+            Terminal::Slash => BinaryOperator::Slash,
             // Dispatcher should never reach this block of code due to parser guarantees.
             _ => unreachable!(),
         };
 
-        Ok(NonTerminal::Multiplicative(Box::new(non_term_kind)))
+        let bin_expr = BinaryExpr::new(lhs, BinaryOperator::Slash, rhs);
+        let inner = ExprInner::Binary(bin_expr);
+
+        Ok(NonTerminal::Multiplicative(Box::new(inner)))
     } else {
-        Err(err_msg)
+        Err(format!(
+            "expected 3 elements at top of stack in production {} reducer.",
+            production_id
+        ))
     }
 }
 
@@ -152,24 +173,24 @@ fn reduce_additive_binary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal,
     let optional_rhs = elems.pop();
     let optional_term = elems.pop();
     let optional_lhs = elems.pop();
-    let err_msg = format!(
-        "expected 3 elements at top of stack in production  reducer. got [{:?}, {:?}, {:?}]",
-        &optional_lhs, &optional_term, &optional_rhs
-    );
 
     // reversed due to popping elements
     if let [Some(TermOrNonTerm::NonTerminal(lhs)), Some(TermOrNonTerm::Terminal(op)), Some(TerminalOrNonTerminal::NonTerminal(rhs))] =
         [optional_lhs, optional_term, optional_rhs]
     {
-        let non_term_kind = match op {
-            Terminal::Plus => AdditiveTermKind::Add(lhs, rhs),
-            Terminal::Minus => AdditiveTermKind::Sub(lhs, rhs),
+        let bin_op = match op {
+            Terminal::Plus => BinaryOperator::Plus,
+            Terminal::Minus => BinaryOperator::Minus,
             // Dispatcher should never reach this block of code due to parser guarantees.
             _ => unreachable!(),
         };
 
-        Ok(NonTerminal::Additive(Box::new(non_term_kind)))
+        let bin_expr = BinaryExpr::new(lhs, bin_op, rhs);
+        let inner = ExprInner::Binary(bin_expr);
+
+        Ok(NonTerminal::Additive(Box::new(inner)))
     } else {
+        let err_msg = format!("expected 3 elements at top of stack in production  reducer.",);
         Err(err_msg)
     }
 }
@@ -178,15 +199,15 @@ fn reduce_additive_binary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal,
 pub enum NonTerminal {
     #[goal(r"<Expr>", reduce_expr_unary)]
     #[production(r"<Additive>", reduce_expr_unary)]
-    Expr(Box<NonTerminal>),
+    Expr(Box<ExprInner>),
     #[production(r"<Additive> Terminal::Plus <Multiplicative>", reduce_additive_binary)]
     #[production(r"<Additive> Terminal::Minus <Multiplicative>", reduce_additive_binary)]
     #[production(r"<Multiplicative>", reduce_additive_unary)]
-    Additive(Box<AdditiveTermKind>),
+    Additive(Box<ExprInner>),
     #[production(r"<Multiplicative> Terminal::Star <Primary>", |elems| { reduce_multiplicative_binary(6, elems) })]
     #[production(r"<Multiplicative> Terminal::Slash <Primary>", |elems| { reduce_multiplicative_binary(7, elems) })]
     #[production(r"<Primary>", reduce_multiplicative_unary)]
-    Multiplicative(Box<MultiplicativeTermKind>),
+    Multiplicative(Box<ExprInner>),
     #[production(r"Terminal::Int", reduce_primary)]
     Primary(Terminal),
 }
@@ -204,20 +225,20 @@ fn parse_basic_expression(c: &mut Criterion) {
             Terminal::Eof,
         ];
 
-        let expected = NonTerminal::Expr(Box::new(NonTerminal::Additive(Box::new(
-            AdditiveTermKind::Add(
-                NonTerminal::Additive(Box::new(AdditiveTermKind::Unary(
-                    NonTerminal::Multiplicative(Box::new(MultiplicativeTermKind::Div(
-                        NonTerminal::Multiplicative(Box::new(MultiplicativeTermKind::Unary(
-                            NonTerminal::Primary(Terminal::Int(10)),
-                        ))),
-                        NonTerminal::Primary(Terminal::Int(5)),
-                    ))),
-                ))),
-                NonTerminal::Multiplicative(Box::new(MultiplicativeTermKind::Unary(
-                    NonTerminal::Primary(Terminal::Int(1)),
-                ))),
-            ),
+        let expected = NonTerminal::Expr(Box::new(ExprInner::Binary(BinaryExpr::new(
+            NonTerminal::Additive(Box::new(ExprInner::Unary(UnaryExpr::new(
+                NonTerminal::Multiplicative(Box::new(ExprInner::Binary(BinaryExpr::new(
+                    NonTerminal::Multiplicative(Box::new(ExprInner::Unary(UnaryExpr::new(
+                        NonTerminal::Primary(Terminal::Int(10)),
+                    )))),
+                    BinaryOperator::Slash,
+                    NonTerminal::Primary(Terminal::Int(5)),
+                )))),
+            )))),
+            BinaryOperator::Plus,
+            NonTerminal::Multiplicative(Box::new(ExprInner::Unary(UnaryExpr::new(
+                NonTerminal::Primary(Terminal::Int(1)),
+            )))),
         ))));
 
         let expected = Ok(expected);
