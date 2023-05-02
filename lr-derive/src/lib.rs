@@ -8,7 +8,7 @@ use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
-    Data, DataEnum, DeriveInput, ExprClosure, Fields, Ident, LitStr, Token,
+    Data, DataEnum, DeriveInput, ExprClosure, Fields, Generics, Ident, LitStr, Token,
 };
 
 struct Production(LitStr);
@@ -122,12 +122,15 @@ struct GrammarAnnotatedEnum {
     /// Represents the Identifier for the Token enum.
     #[allow(unused)]
     enum_ident: Ident,
+    enum_generics: Generics,
     variant_metadata: Vec<ProductionAnnotatedEnumVariant>,
 }
 
 fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
     let input_span = input.span();
-    let enum_variant_ident = input.ident;
+    let enum_ident = input.ident;
+    let enum_generics = input.generics;
+
     let enum_variants = match input.data {
         Data::Enum(DataEnum { variants, .. }) => variants,
         _ => {
@@ -204,7 +207,8 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
         .collect::<Result<_, _>>()
         .map(|enriched_enum_variants| GrammarAnnotatedEnum {
             span: input_span,
-            enum_ident: enum_variant_ident,
+            enum_ident,
+            enum_generics,
             variant_metadata: enriched_enum_variants,
         })
 }
@@ -650,36 +654,23 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
 }
 
 /// Generates the context for storing parse state.
-struct ParserCtxCodeGen<'a> {
-    terminal_identifier: &'a Ident,
-    non_terminal_identifier: &'a Ident,
-}
+struct ParserCtxCodeGen ;
 
-impl<'a> ParserCtxCodeGen<'a> {
-    fn new(terminal_identifier: &'a Ident, non_terminal_identifier: &'a Ident) -> Self {
-        Self {
-            terminal_identifier,
-            non_terminal_identifier,
-        }
-    }
-}
 
-impl<'a> ToTokens for ParserCtxCodeGen<'a> {
+
+impl ToTokens for ParserCtxCodeGen {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let term_ident = format_ident!("{}", &self.terminal_identifier);
-        let nonterm_ident = format_ident!("{}", &self.non_terminal_identifier.to_string());
-
         let parser_ctx_stream = quote!(
-            struct ParseContext {
+            struct ParseContext<T, NT> {
                 state_stack: Vec<usize>,
-                element_stack: Vec<lr_core::TerminalOrNonTerminal<#term_ident, #nonterm_ident>>,
+                element_stack: Vec<lr_core::TerminalOrNonTerminal<T, NT>>,
             }
 
-            impl ParseContext {
+            impl<T, NT> ParseContext<T, NT> {
                 const DEFAULT_STACK_SIZE: usize = 128;
             }
 
-            impl ParseContext {
+            impl<T, NT> ParseContext<T, NT> {
                 fn push_state_mut(&mut self, state_id: usize) {
                     self.state_stack.push(state_id)
                 }
@@ -688,18 +679,18 @@ impl<'a> ToTokens for ParserCtxCodeGen<'a> {
                     self.state_stack.pop()
                 }
 
-                fn push_element_mut(&mut self, elem: TerminalOrNonTerminal<#term_ident, #nonterm_ident>) {
+                fn push_element_mut(&mut self, elem: TerminalOrNonTerminal<T, NT>) {
                     self.element_stack.push(elem)
                 }
 
                 fn pop_element_mut(
                     &mut self,
-                ) -> Option<TerminalOrNonTerminal<#term_ident, #nonterm_ident>> {
+                ) -> Option<TerminalOrNonTerminal<T, NT>> {
                     self.element_stack.pop()
                 }
             }
 
-            impl Default for ParseContext {
+            impl<T, NT> Default for ParseContext<T, NT> {
                 fn default() -> Self {
                     Self {
                         state_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
@@ -716,6 +707,7 @@ impl<'a> ToTokens for ParserCtxCodeGen<'a> {
 fn codegen(
     terminal_identifier: &Ident,
     nonterminal_identifier: &Ident,
+    nonterminal_generics: &Generics,
     grammar_table: &ReducibleGrammarTable,
     table: &StateTable,
 ) -> Result<TokenStream, String> {
@@ -749,8 +741,6 @@ fn codegen(
         ActionMatcherCodeGen::new(terminal_identifier, states_iter, reducers, &rhs_lens)
             .into_token_stream();
 
-    let parser_ctx = ParserCtxCodeGen::new(terminal_identifier, nonterminal_identifier);
-
     let parser_fn_stream = quote!(
         #[allow(unused)]
         pub fn lr_parse_input<S>(input: S) -> Result<#nonterminal_identifier, String>
@@ -775,7 +765,7 @@ fn codegen(
     );
 
     let stream = [
-        parser_ctx.into_token_stream(),
+        ParserCtxCodeGen.into_token_stream(),
         goto_table_codegen.into_token_stream(),
         parser_fn_stream.into_token_stream(),
     ]
@@ -803,15 +793,17 @@ pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
-    let term_ident = reducible_grammar_table
+    let terminal_ident = reducible_grammar_table
         .terminal_ident()
         .map(|t| format_ident!("{}", t))
         .unwrap();
-    let non_terminal_identifier = annotated_enum.enum_ident;
+    let nonterminal_identifier = annotated_enum.enum_ident;
+    let nonterminal_generics = annotated_enum.enum_generics;
 
     codegen(
-        &term_ident,
-        &non_terminal_identifier,
+        &terminal_ident,
+        &nonterminal_identifier,
+        &nonterminal_generics,
         &reducible_grammar_table,
         &state_table,
     )
