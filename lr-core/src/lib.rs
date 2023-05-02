@@ -60,6 +60,16 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// A trait for flagging that a type can be represented as a nonterminal in a
+/// generated parser.
+pub trait NonTerminalRepresentable: std::fmt::Debug
+where
+    Self::Terminal: TerminalRepresentable,
+{
+    // A Representation of a Terminal
+    type Terminal;
+}
+
 /// A trait for flagging that a type can be represented as a terminal in a
 /// generated parser.
 pub trait TerminalRepresentable: std::fmt::Debug

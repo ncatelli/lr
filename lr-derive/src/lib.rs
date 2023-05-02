@@ -228,16 +228,6 @@ impl ReducibleGrammarTable {
     }
 }
 
-impl ReducibleGrammarTable {
-    fn terminal_ident(&self) -> Option<String> {
-        self.grammar_table
-            .terminals()
-            .filter(|t| !lr_core::grammar::BuiltinTerminals::is_builtin(t))
-            .filter_map(|t| t.as_ref().split("::").next().map(|t| t.to_string()))
-            .next()
-    }
-}
-
 fn generate_grammer_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
@@ -245,9 +235,7 @@ fn generate_grammer_table_from_annotated_enum(
         define_production_mut, DefaultInitializedGrammarTableSansBuiltins, GrammarInitializer,
     };
 
-    let eof_terminal = "Terminal::Eof";
     let mut grammar_table = DefaultInitializedGrammarTableSansBuiltins::initialize_table();
-    let _ = grammar_table.declare_eof_terminal(eof_terminal);
 
     let mut goal = None;
     let mut productions = vec![];
@@ -291,6 +279,15 @@ fn generate_grammer_table_from_annotated_enum(
         define_production_mut(&mut grammar_table, line).map_err(|e| e.to_string())?;
         reducers.push(reducer)
     }
+
+    let terminal_ident = grammar_table
+            .terminals()
+            .filter(|t| !lr_core::grammar::BuiltinTerminals::is_builtin(t))
+            .filter_map(|t| t.as_ref().split("::").next().map(|t| t.to_string()))
+            .next().ok_or_else(|| "No terminal defined".to_string())?;
+
+    let eof_terminal = format!("{}::Eof", terminal_ident);
+    let _ = grammar_table.declare_eof_terminal(eof_terminal);
 
     Ok(ReducibleGrammarTable::new(grammar_table, reducers))
 }
@@ -394,7 +391,7 @@ impl<'a> Iterator for ActionIterator<'a> {
 }
 
 struct ActionMatcherCodeGen<'a> {
-    terminal_identifier: &'a Ident,
+    nonterminal_identifier: &'a Ident,
     action_table_variants: ActionIterator<'a>,
     reducers: &'a [ReducerAction],
     rhs_lens: &'a [usize],
@@ -402,13 +399,13 @@ struct ActionMatcherCodeGen<'a> {
 
 impl<'a> ActionMatcherCodeGen<'a> {
     fn new(
-        terminal_identifier: &'a Ident,
+        nonterminal_identifier: &'a Ident,
         action_table_variants: ActionIterator<'a>,
         reducers: &'a [ReducerAction],
         rhs_lens: &'a [usize],
     ) -> Self {
         Self {
-            terminal_identifier,
+            nonterminal_identifier,
             action_table_variants,
             reducers,
             rhs_lens,
@@ -418,7 +415,7 @@ impl<'a> ActionMatcherCodeGen<'a> {
 
 impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let terminal_identifier = self.terminal_identifier;
+        let nonterminal_identifier = self.nonterminal_identifier;
         let filtered_actions = self
             .action_table_variants
             .clone()
@@ -461,7 +458,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                 // tuple rhs. This casts the type to it's associated
                 // Repr type, which _should_ align with the shown value.
                 quote!(
-                    (#state_id, <#terminal_identifier as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
+                    (#state_id, <<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
                 )
             },
         );
@@ -553,7 +550,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                 }
                 Action::DeadState => Err(format!(
                     "unexpected input {:?} for state {}",
-                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_identifier::eof),
+                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(<<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof),
                     current_state
                 )),
                 Action::Accept => {
@@ -586,6 +583,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
 
 struct GotoTableLookupCodeGen<'a> {
     nonterminal_ident: Ident,
+    nonterminal_generics: &'a Generics,
     variant_idents: Vec<Ident>,
 
     goto_table: &'a Vec<Vec<Goto>>,
@@ -594,11 +592,13 @@ struct GotoTableLookupCodeGen<'a> {
 impl<'a> GotoTableLookupCodeGen<'a> {
     fn new(
         nonterminal_ident: Ident,
+        nonterminal_generics: &'a Generics,
         variant_idents: Vec<Ident>,
         goto_table: &'a Vec<Vec<Goto>>,
     ) -> Self {
         Self {
             nonterminal_ident,
+            nonterminal_generics,
             variant_idents,
             goto_table,
         }
@@ -607,8 +607,6 @@ impl<'a> GotoTableLookupCodeGen<'a> {
 
 impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let mut variants = vec![];
-
         let per_non_terminal_gotos = self
             .goto_table
             .iter()
@@ -616,7 +614,16 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
             .skip(1)
             .enumerate();
 
-        let nonterm_ident = &self.nonterminal_ident;
+        let nonterminal_identifier = &self.nonterminal_ident;
+        let nonterminal_generics = self.nonterminal_generics;
+        let nonterminal_params = self.nonterminal_generics.params.clone();
+        let nonterminal_signature = if nonterminal_generics.params.len() > 0 {
+            quote!(#nonterminal_identifier #nonterminal_generics)
+        } else {
+            quote!(#nonterminal_identifier)
+        };
+
+        let mut variants = vec![];
 
         for (non_terminal_id, gotos) in per_non_terminal_gotos {
             let valid_variants =
@@ -631,7 +638,7 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
             for (state, production_offset, goto_state) in valid_variants {
                 let production_ident = &self.variant_idents[production_offset];
                 let goto_variant_stream = quote!(
-                    (#state, #nonterm_ident::#production_ident(_)) => Some(#goto_state),
+                    (#state, #nonterminal_identifier::#production_ident(_)) => Some(#goto_state),
                 );
                 variants.push(goto_variant_stream);
             }
@@ -641,7 +648,7 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
         // into the lookup.
         let variants = variants.into_iter().collect::<TokenStream>();
         let lookup_goto_stream = quote!(
-            fn lookup_goto(state: usize, non_term: &NonTerminal) -> Option<usize> {
+            fn lookup_goto<#nonterminal_params>(state: usize, non_term: &#nonterminal_signature) -> Option<usize> {
                 match (state, non_term) {
                     #variants
                     _ => None,
@@ -705,12 +712,18 @@ impl ToTokens for ParserCtxCodeGen {
 }
 
 fn codegen(
-    terminal_identifier: &Ident,
     nonterminal_identifier: &Ident,
     nonterminal_generics: &Generics,
     grammar_table: &ReducibleGrammarTable,
     table: &StateTable,
 ) -> Result<TokenStream, String> {
+    let nonterminal_params = nonterminal_generics.params.clone();
+    let nonterminal_signature = if nonterminal_generics.params.len() > 0 {
+        quote!(#nonterminal_identifier #nonterminal_generics)
+    } else {
+        quote!(#nonterminal_identifier)
+    };
+
     let goto_formatted_nonterms = grammar_table
         .grammar_table
         .non_terminals()
@@ -726,6 +739,7 @@ fn codegen(
 
     let goto_table_codegen = GotoTableLookupCodeGen::new(
         nonterminal_identifier.clone(),
+        nonterminal_generics,
         goto_formatted_nonterms,
         &table.state_table.goto,
     );
@@ -738,14 +752,14 @@ fn codegen(
         .map(|production_ref| production_ref.rhs_len())
         .collect::<Vec<_>>();
     let action_matcher_codegen =
-        ActionMatcherCodeGen::new(terminal_identifier, states_iter, reducers, &rhs_lens)
+        ActionMatcherCodeGen::new(nonterminal_identifier, states_iter, reducers, &rhs_lens)
             .into_token_stream();
 
     let parser_fn_stream = quote!(
         #[allow(unused)]
-        pub fn lr_parse_input<S>(input: S) -> Result<#nonterminal_identifier, String>
+        pub fn lr_parse_input<S, #nonterminal_params>(input: S) -> Result<#nonterminal_signature, String>
         where
-            S: IntoIterator<Item=#terminal_identifier>
+            S: IntoIterator<Item=<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal>
         {
             use lr_core::lr::{Action, ProductionId, StateId};
 
@@ -758,7 +772,7 @@ fn codegen(
                     .pop_state_mut()
                     .ok_or_else(|| "state stack is empty".to_string())?;
 
-                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(#terminal_identifier::eof);
+                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
                 #action_matcher_codegen
             }
         }
@@ -793,15 +807,10 @@ pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let state_table = StateTable::new(&reducible_grammar_table, &lr_table);
 
-    let terminal_ident = reducible_grammar_table
-        .terminal_ident()
-        .map(|t| format_ident!("{}", t))
-        .unwrap();
     let nonterminal_identifier = annotated_enum.enum_ident;
     let nonterminal_generics = annotated_enum.enum_generics;
 
     codegen(
-        &terminal_ident,
         &nonterminal_identifier,
         &nonterminal_generics,
         &reducible_grammar_table,

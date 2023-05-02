@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use lr_core::{TerminalOrNonTerminal, TerminalRepresentable};
+use lr_core::{TerminalOrNonTerminal, TerminalRepresentable, NonTerminalRepresentable};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,6 +210,10 @@ pub enum NonTerminal {
     Multiplicative(Box<ExprInner>),
     #[production(r"Terminal::Int", reduce_primary)]
     Primary(Terminal),
+}
+
+impl NonTerminalRepresentable for NonTerminal {
+    type Terminal = Terminal;
 }
 
 fn parse_basic_expression(c: &mut Criterion) {
