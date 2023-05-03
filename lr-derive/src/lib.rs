@@ -755,11 +755,17 @@ fn codegen(
         ActionMatcherCodeGen::new(nonterminal_identifier, states_iter, reducers, &rhs_lens)
             .into_token_stream();
 
+    let lr_parse_input_params = if nonterminal_generics.params.len() > 0 {
+        quote!(#nonterminal_params, S)
+    } else {
+        quote!(S)
+    };
+
     let parser_fn_stream = quote!(
         #[allow(unused)]
-        pub fn lr_parse_input<S, #nonterminal_params>(input: S) -> Result<#nonterminal_signature, String>
+        pub fn lr_parse_input<#lr_parse_input_params>(input: S) -> Result<#nonterminal_signature, String>
         where
-            S: IntoIterator<Item=<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal>
+            S: IntoIterator<Item=<#nonterminal_signature as lr_core::NonTerminalRepresentable>::Terminal>
         {
             use lr_core::lr::{Action, ProductionId, StateId};
 
