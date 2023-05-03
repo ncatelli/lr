@@ -281,10 +281,11 @@ fn generate_grammer_table_from_annotated_enum(
     }
 
     let terminal_ident = grammar_table
-            .terminals()
-            .filter(|t| !lr_core::grammar::BuiltinTerminals::is_builtin(t))
-            .filter_map(|t| t.as_ref().split("::").next().map(|t| t.to_string()))
-            .next().ok_or_else(|| "No terminal defined".to_string())?;
+        .terminals()
+        .filter(|t| !lr_core::grammar::BuiltinTerminals::is_builtin(t))
+        .filter_map(|t| t.as_ref().split("::").next().map(|t| t.to_string()))
+        .next()
+        .ok_or_else(|| "No terminal defined".to_string())?;
 
     let eof_terminal = format!("{}::Eof", terminal_ident);
     let _ = grammar_table.declare_eof_terminal(eof_terminal);
@@ -661,9 +662,7 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
 }
 
 /// Generates the context for storing parse state.
-struct ParserCtxCodeGen ;
-
-
+struct ParserCtxCodeGen;
 
 impl ToTokens for ParserCtxCodeGen {
     fn to_tokens(&self, tokens: &mut TokenStream) {
@@ -690,9 +689,7 @@ impl ToTokens for ParserCtxCodeGen {
                     self.element_stack.push(elem)
                 }
 
-                fn pop_element_mut(
-                    &mut self,
-                ) -> Option<TerminalOrNonTerminal<T, NT>> {
+                fn pop_element_mut(&mut self) -> Option<TerminalOrNonTerminal<T, NT>> {
                     self.element_stack.pop()
                 }
             }
@@ -778,7 +775,7 @@ fn codegen(
                     .pop_state_mut()
                     .ok_or_else(|| "state stack is empty".to_string())?;
 
-                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
+                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<#nonterminal_signature as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
                 #action_matcher_codegen
             }
         }
