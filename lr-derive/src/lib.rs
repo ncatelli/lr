@@ -792,7 +792,7 @@ fn codegen(
     Ok(stream)
 }
 
-/// The dispatcher method for tokens annotated with the Lr1 derive.
+/// The dispatcher method for enums annotated with the Lr1 derive.
 #[proc_macro_derive(Lr1, attributes(goal, production))]
 pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     use lr_core::{generate_table_from_grammar, GeneratorKind};
