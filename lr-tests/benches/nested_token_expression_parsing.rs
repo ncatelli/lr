@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use lr_core::{
-    LrParseable, NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable,
-};
+
+use lr_core::prelude::v1::*;
+use lr_core::TerminalOrNonTerminal;
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
