@@ -61,28 +61,6 @@ impl std::fmt::Display for Error {
 }
 
 /// A trait for flagging that a type can be represented as a nonterminal in a
-/// generated parser that contains state tracking.
-pub trait NonTerminalStatefulRepresentable: std::fmt::Debug
-where
-    Self::Terminal: TerminalRepresentable,
-{
-    // A Representation of a Terminal
-    type Terminal;
-
-    // A type for providing state across all reducer functions.
-    type State;
-}
-
-impl<NT> NonTerminalStatefulRepresentable for NT
-where
-    NT: NonTerminalRepresentable,
-{
-    type Terminal = NT::Terminal;
-
-    type State = ();
-}
-
-/// A trait for flagging that a type can be represented as a nonterminal in a
 /// generated parser.
 pub trait NonTerminalRepresentable: std::fmt::Debug
 where
