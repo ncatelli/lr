@@ -1,5 +1,6 @@
 pub mod grammar;
 pub mod lr;
+pub mod prelude;
 
 /// Represents the kind of table that can be generated
 pub enum GeneratorKind {
@@ -60,7 +61,8 @@ impl std::fmt::Display for Error {
     }
 }
 
-/// LrParseable defines a trait for parsing a non terminal symbol from a given input.
+/// LrParseable defines a trait for parsing a non-terminal symbol from a given
+/// input.
 pub trait LrParseable: NonTerminalRepresentable + Sized {
     fn parse_input<S>(input: S) -> Result<Self, String>
     where
