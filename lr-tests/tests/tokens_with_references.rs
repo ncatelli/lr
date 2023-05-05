@@ -1,4 +1,6 @@
-use lr_core::{NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable};
+use lr_core::{
+    LrParseable, NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable,
+};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,7 +147,7 @@ fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
     ];
     let tokenizer = input.into_iter();
 
-    let parse_tree = lr_parse_input(tokenizer);
+    let parse_tree = NonTerminal::parse_input(tokenizer);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
         NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::new(

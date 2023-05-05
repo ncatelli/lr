@@ -751,31 +751,26 @@ fn codegen(
         ActionMatcherCodeGen::new(nonterminal_identifier, states_iter, reducers, &rhs_lens)
             .into_token_stream();
 
-    let lr_parse_input_params = if !nonterminal_generics.params.is_empty() {
-        quote!(#nonterminal_params, S)
-    } else {
-        quote!(S)
-    };
-
     let parser_fn_stream = quote!(
-        #[allow(unused)]
-        pub fn lr_parse_input<#lr_parse_input_params>(input: S) -> Result<#nonterminal_signature, String>
-        where
-            S: IntoIterator<Item=<#nonterminal_signature as lr_core::NonTerminalRepresentable>::Terminal>
-        {
-            use lr_core::lr::{Action, ProductionId, StateId};
+        impl<#nonterminal_params> lr_core::LrParseable for #nonterminal_signature {
+            fn parse_input<S>(input: S) -> Result<Self, String>
+            where
+                S: IntoIterator<Item = <Self as lr_core::NonTerminalRepresentable>::Terminal>
+            {
+                use lr_core::lr::{Action, ProductionId, StateId};
 
-            let mut input = input.into_iter().peekable();
-            let mut parse_ctx = ParseContext::default();
-            parse_ctx.push_state_mut(0);
+                let mut input = input.into_iter().peekable();
+                let mut parse_ctx = ParseContext::default();
+                parse_ctx.push_state_mut(0);
 
-            loop {
-                let current_state = parse_ctx
-                    .pop_state_mut()
-                    .ok_or_else(|| "state stack is empty".to_string())?;
+                loop {
+                    let current_state = parse_ctx
+                        .pop_state_mut()
+                        .ok_or_else(|| "state stack is empty".to_string())?;
 
-                let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<#nonterminal_signature as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
-                #action_matcher_codegen
+                    let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<Self as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
+                    #action_matcher_codegen
+                }
             }
         }
     );

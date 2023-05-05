@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use lr_core::{NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable};
+use lr_core::{
+    LrParseable, NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable,
+};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,7 +250,7 @@ fn parse_basic_expression(c: &mut Criterion) {
         let expected = Ok(expected);
 
         b.iter(|| {
-            let parse_tree = lr_parse_input(black_box((&token_stream).iter().copied()));
+            let parse_tree = NonTerminal::parse_input(black_box((&token_stream).iter().copied()));
             assert_eq!(&parse_tree, &expected);
         });
     });
@@ -275,7 +277,7 @@ fn parse_large_expression(c: &mut Criterion) {
 
     group.bench_function("without tokenization", |b| {
         b.iter(|| {
-            let parse_tree = lr_parse_input(black_box((&token_stream).iter().copied()));
+            let parse_tree = NonTerminal::parse_input(black_box((&token_stream).iter().copied()));
             assert!(parse_tree.is_ok());
         });
     });

@@ -60,6 +60,13 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// LrParseable defines a trait for parsing a non terminal symbol from a given input.
+pub trait LrParseable: NonTerminalRepresentable + Sized {
+    fn parse_input<S>(input: S) -> Result<Self, String>
+    where
+        S: IntoIterator<Item = <Self as NonTerminalRepresentable>::Terminal>;
+}
+
 /// A trait for flagging that a type can be represented as a nonterminal in a
 /// generated parser.
 pub trait NonTerminalRepresentable: std::fmt::Debug
