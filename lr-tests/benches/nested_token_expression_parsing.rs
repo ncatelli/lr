@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use lr_core::{TerminalOrNonTerminal, TerminalRepresentable, NonTerminalRepresentable};
+use lr_core::{NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

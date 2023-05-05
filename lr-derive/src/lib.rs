@@ -312,7 +312,7 @@ impl<'a> StateTable<'a> {
         let grammar_table = &self.reducible_grammar_table.grammar_table;
 
         let state_cnt = self.state_table.states;
-        let possible_states = (0..state_cnt).into_iter().flat_map(|state_idx| {
+        let possible_states = (0..state_cnt).flat_map(|state_idx| {
             let action_table = &self.state_table.action;
 
             let action_columns = action_table
@@ -420,7 +420,6 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
         let filtered_actions = self
             .action_table_variants
             .clone()
-            .into_iter()
             // prune out all the deadstate actions
             .filter(|variant| !matches!(variant.action, Action::DeadState));
 
@@ -618,7 +617,7 @@ impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
         let nonterminal_identifier = &self.nonterminal_ident;
         let nonterminal_generics = self.nonterminal_generics;
         let nonterminal_params = self.nonterminal_generics.params.clone();
-        let nonterminal_signature = if nonterminal_generics.params.len() > 0 {
+        let nonterminal_signature = if !nonterminal_generics.params.is_empty() {
             quote!(#nonterminal_identifier #nonterminal_generics)
         } else {
             quote!(#nonterminal_identifier)
@@ -715,7 +714,7 @@ fn codegen(
     table: &StateTable,
 ) -> Result<TokenStream, String> {
     let nonterminal_params = nonterminal_generics.params.clone();
-    let nonterminal_signature = if nonterminal_generics.params.len() > 0 {
+    let nonterminal_signature = if !nonterminal_generics.params.is_empty() {
         quote!(#nonterminal_identifier #nonterminal_generics)
     } else {
         quote!(#nonterminal_identifier)
@@ -752,7 +751,7 @@ fn codegen(
         ActionMatcherCodeGen::new(nonterminal_identifier, states_iter, reducers, &rhs_lens)
             .into_token_stream();
 
-    let lr_parse_input_params = if nonterminal_generics.params.len() > 0 {
+    let lr_parse_input_params = if !nonterminal_generics.params.is_empty() {
         quote!(#nonterminal_params, S)
     } else {
         quote!(S)

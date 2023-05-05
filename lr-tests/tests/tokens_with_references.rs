@@ -1,4 +1,4 @@
-use lr_core::{TerminalOrNonTerminal, TerminalRepresentable, NonTerminalRepresentable};
+use lr_core::{NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,15 +28,17 @@ pub struct Terminal<'a> {
 }
 
 impl<'a> Terminal<'a> {
-    pub fn new(variant: TerminalKind, data: &'a str) -> Self { Self { variant, data } }
+    pub fn new(variant: TerminalKind, data: &'a str) -> Self {
+        Self { variant, data }
+    }
 }
 
 impl<'a> std::fmt::Display for Terminal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.variant {
-            TerminalKind::Plus 
-            | TerminalKind::Star 
-            |TerminalKind::Eof => write!(f, "{}", self.variant),
+            TerminalKind::Plus | TerminalKind::Star | TerminalKind::Eof => {
+                write!(f, "{}", self.variant)
+            }
             TerminalKind::Int => write!(f, "{}", self.data),
         }
     }
@@ -73,7 +75,9 @@ fn reduce_b_non_term<'a>(elems: &mut Vec<TermOrNonTerm<'a>>) -> Result<NonTermin
 }
 
 #[allow(unused)]
-fn reduce_e_unary_non_term<'a>(elems: &mut Vec<TermOrNonTerm<'a>>) -> Result<NonTerminal<'a>, String> {
+fn reduce_e_unary_non_term<'a>(
+    elems: &mut Vec<TermOrNonTerm<'a>>,
+) -> Result<NonTerminal<'a>, String> {
     if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
         let non_term_kind = NonTermKind::Unary(nonterm);
 
@@ -115,8 +119,6 @@ fn reduce_e_binary_non_term<'a>(
     }
 }
 
-
-
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal<'a> {
     #[goal(r"<E>", reduce_e_unary_non_term)]
@@ -129,7 +131,7 @@ pub enum NonTerminal<'a> {
 }
 
 impl<'a> NonTerminalRepresentable for NonTerminal<'a> {
-    type Terminal=Terminal<'a>;
+    type Terminal = Terminal<'a>;
 }
 
 #[test]
@@ -146,13 +148,11 @@ fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
     let parse_tree = lr_parse_input(tokenizer);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
-        NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(
-    
-    Terminal::new(TerminalKind::Int, &data[0..2])
-    )))),
-        NonTerminal::B(
-            Terminal::new(TerminalKind::Int, &data[5..6])
-            ),
+        NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::new(
+            TerminalKind::Int,
+            &data[0..2],
+        ))))),
+        NonTerminal::B(Terminal::new(TerminalKind::Int, &data[5..6])),
     )));
 
     assert_eq!(parse_tree, Ok(expected));

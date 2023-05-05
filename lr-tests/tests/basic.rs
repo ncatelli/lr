@@ -1,4 +1,4 @@
-use lr_core::{TerminalOrNonTerminal, TerminalRepresentable, NonTerminalRepresentable};
+use lr_core::{NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +112,7 @@ pub enum NonTerminal {
 }
 
 impl NonTerminalRepresentable for NonTerminal {
-    type Terminal=Terminal;
+    type Terminal = Terminal;
 }
 
 #[test]

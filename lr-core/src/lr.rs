@@ -833,7 +833,6 @@ impl LrTable {
         );
 
         let rows = (0..self.states)
-            .into_iter()
             .map(|curr_state| {
                 let action_row = self.action.iter().map(|col| {
                     col.get(curr_state)

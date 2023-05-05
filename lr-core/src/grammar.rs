@@ -652,15 +652,15 @@ pub fn define_production_mut<S: AsRef<str>>(
     }
 
     if grammar_table.productions.contains(&production) {
-        return Err(
+        Err(
             GrammarLoadError::new(GrammarLoadErrorKind::ConflictingProduction)
                 .with_data(format!("{} ", &production)),
-        );
+        )
     } else if !production.is_valid() {
-        return Err(
+        Err(
             GrammarLoadError::new(GrammarLoadErrorKind::InvalidProduction)
                 .with_data(format!("{} ", &production)),
-        );
+        )
     } else {
         grammar_table.add_production_mut(production);
         Ok(())

@@ -1,4 +1,4 @@
-use lr_core::{TerminalOrNonTerminal, TerminalRepresentable, NonTerminalRepresentable};
+use lr_core::{NonTerminalRepresentable, TerminalOrNonTerminal, TerminalRepresentable};
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,8 +119,6 @@ fn reduce_e_binary_non_term(
     }
 }
 
-
-
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal {
     #[goal(r"<E>", reduce_e_unary_non_term)]
@@ -133,7 +131,7 @@ pub enum NonTerminal {
 }
 
 impl NonTerminalRepresentable for NonTerminal {
-    type Terminal=Terminal;
+    type Terminal = Terminal;
 }
 
 #[test]
