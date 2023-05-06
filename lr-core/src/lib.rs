@@ -61,6 +61,16 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// LrStatefulParseable defines a trait for parsing a non-terminal symbol from
+/// a given input with persistant state.
+pub trait LrStatefulParseable: NonTerminalRepresentable + Sized {
+    type State;
+
+    fn parse_input<S>(state: &mut Self::State, input: S) -> Result<Self, String>
+    where
+        S: IntoIterator<Item = <Self as NonTerminalRepresentable>::Terminal>;
+}
+
 /// LrParseable defines a trait for parsing a non-terminal symbol from a given
 /// input.
 pub trait LrParseable: NonTerminalRepresentable + Sized {
