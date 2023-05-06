@@ -24,19 +24,39 @@ impl Production {
 }
 
 #[derive(Debug, Clone)]
+struct ParserState {
+    ident: Ident,
+    generics: Option<Generics>,
+}
+
+impl ParserState {
+    fn new(ident: Ident, generics: Option<Generics>) -> Self {
+        Self { ident, generics }
+    }
+}
+
+#[derive(Debug, Clone)]
 enum ReducerAction {
     Closure(ExprClosure),
     Fn(Ident),
 }
 
 enum GrammarItemAttributeKind {
+    State,
     Goal,
     Production,
 }
 
 enum GrammarItemAttributeMetadata {
+    State(StateAttributeMetadata),
     Goal(GoalAttributeMetadata),
     Production(ProductionAttributeMetadata),
+}
+
+impl From<StateAttributeMetadata> for GrammarItemAttributeMetadata {
+    fn from(value: StateAttributeMetadata) -> Self {
+        Self::State(value)
+    }
 }
 
 impl From<GoalAttributeMetadata> for GrammarItemAttributeMetadata {
@@ -48,6 +68,34 @@ impl From<GoalAttributeMetadata> for GrammarItemAttributeMetadata {
 impl From<ProductionAttributeMetadata> for GrammarItemAttributeMetadata {
     fn from(value: ProductionAttributeMetadata) -> Self {
         Self::Production(value)
+    }
+}
+
+struct StateAttributeMetadata {
+    ty: Ident,
+    generics: Option<Generics>,
+}
+
+impl Parse for StateAttributeMetadata {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        let ty = if lookahead.peek(Ident) {
+            let ty: Ident = input.parse()?;
+
+            ty
+        } else {
+            return Err(lookahead.error());
+        };
+
+        // Attempt to parse out generics, otherwise default to none.
+        let generics = if lookahead.peek(syn::token::Lt) {
+            let generics = input.parse::<Generics>()?;
+            Some(generics)
+        } else {
+            None
+        };
+
+        Ok(Self { ty, generics })
     }
 }
 
@@ -154,6 +202,8 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
                     Some((GrammarItemAttributeKind::Production, attr))
                 } else if attr.path().is_ident("goal") {
                     Some((GrammarItemAttributeKind::Goal, attr))
+                } else if attr.path().is_ident("state") {
+                    Some((GrammarItemAttributeKind::State, attr))
                 } else {
                     None
                 }
@@ -162,6 +212,9 @@ fn parse(input: DeriveInput) -> Result<GrammarAnnotatedEnum, syn::Error> {
             let valid_attrs_for_variant = grammar_attributes
                 .map(|(kind, attr)| {
                     match kind {
+                        GrammarItemAttributeKind::State => attr
+                            .parse_args_with(StateAttributeMetadata::parse)
+                            .map(GrammarItemAttributeMetadata::from),
                         GrammarItemAttributeKind::Goal => attr
                             .parse_args_with(GoalAttributeMetadata::parse)
                             .map(GrammarItemAttributeMetadata::from),
@@ -228,7 +281,34 @@ impl ReducibleGrammarTable {
     }
 }
 
-fn generate_grammer_table_from_annotated_enum(
+fn state_from_annotated_enum(
+    annotated_enum: &GrammarAnnotatedEnum,
+) -> Result<Option<ParserState>, String> {
+    let mut state = None;
+
+    for variant in &annotated_enum.variant_metadata {
+        let attr_metadata = &variant.attr_metadata;
+        for kind in attr_metadata {
+            match kind {
+                GrammarItemAttributeMetadata::State(_) if state.is_some() => {
+                    return Err("multiple state items defined".to_string())
+                }
+                GrammarItemAttributeMetadata::State(s) => {
+                    let ident = s.ty.clone();
+                    let generics = s.generics.clone();
+
+                    state = Some(ParserState::new(ident, generics))
+                }
+                // ignore non-metadata variants
+                _ => continue,
+            }
+        }
+    }
+
+    Ok(state)
+}
+
+fn generate_grammar_table_from_annotated_enum(
     grammar_variants: &GrammarAnnotatedEnum,
 ) -> Result<ReducibleGrammarTable, String> {
     use lr_core::grammar::{
@@ -256,6 +336,8 @@ fn generate_grammer_table_from_annotated_enum(
                     let non_terminal = production.non_terminal.to_string();
                     productions.push((non_terminal, ram));
                 }
+                // ignore State and other metadata variants
+                _ => continue,
             }
         }
     }
@@ -391,14 +473,24 @@ impl<'a> Iterator for ActionIterator<'a> {
     }
 }
 
-struct ActionMatcherCodeGen<'a> {
+/// A marker trait for representing the kind of state matching code to generate.
+trait ActionMatcherStateHandleable {}
+
+struct Stateless;
+impl ActionMatcherStateHandleable for Stateless {}
+
+struct Stateful;
+impl ActionMatcherStateHandleable for Stateful {}
+
+struct ActionMatcherCodeGen<'a, MK: ActionMatcherStateHandleable> {
+    matcher_kind: std::marker::PhantomData<MK>,
     nonterminal_identifier: &'a Ident,
     action_table_variants: ActionIterator<'a>,
     reducers: &'a [ReducerAction],
     rhs_lens: &'a [usize],
 }
 
-impl<'a> ActionMatcherCodeGen<'a> {
+impl<'a, MK: ActionMatcherStateHandleable> ActionMatcherCodeGen<'a, MK> {
     fn new(
         nonterminal_identifier: &'a Ident,
         action_table_variants: ActionIterator<'a>,
@@ -406,6 +498,7 @@ impl<'a> ActionMatcherCodeGen<'a> {
         rhs_lens: &'a [usize],
     ) -> Self {
         Self {
+            matcher_kind: std::marker::PhantomData,
             nonterminal_identifier,
             action_table_variants,
             reducers,
@@ -414,7 +507,7 @@ impl<'a> ActionMatcherCodeGen<'a> {
     }
 }
 
-impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
+impl<'a> ToTokens for ActionMatcherCodeGen<'a, Stateless> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let nonterminal_identifier = self.nonterminal_identifier;
         let filtered_actions = self
@@ -483,6 +576,8 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
             .iter()
             .zip(rhs_lens)
             .enumerate()
+            // skip the goal production.
+            .skip(1)
             .map(|(production, (reducer, rhs_len))| (production, reducer, *rhs_len));
 
         let reducer_variants = reducers
@@ -495,6 +590,15 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                 }
             })
             .collect::<TokenStream>();
+
+        let goal_reducer = match &self.reducers.get(0).unwrap() {
+            ReducerAction::Closure(ec) => {
+                quote!((#ec)(&mut parse_ctx.element_stack))
+            }
+            ReducerAction::Fn(f) => {
+                quote!((#f)(&mut parse_ctx.element_stack))
+            }
+        };
 
         let action_dispatcher_stream = quote!(
             match action {
@@ -554,8 +658,8 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     current_state
                 )),
                 Action::Accept => {
-                    let element = match parse_ctx.element_stack.len() {
-                        1 => Ok(parse_ctx.element_stack.pop().unwrap()),
+                    let goal = match parse_ctx.element_stack.len() {
+                        1 => #goal_reducer,
                         0 => Err("Reached accept state with empty stack".to_string()),
                         _ => Err(format!(
                             "Reached accept state with data on stack {:?}",
@@ -563,15 +667,177 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                         )),
                     }?;
 
-                    match element {
-                        TerminalOrNonTerminal::Terminal(term) => {
-                            return Err(format!(
-                                "top of stack was a terminal at accept state: {:?}",
-                                term
-                            ))
-                        }
-                        TerminalOrNonTerminal::NonTerminal(nonterm) => return Ok(nonterm),
+                    return Ok(goal);
+                }
+            }?;
+        );
+
+        tokens.extend(action_matcher_stream);
+        tokens.extend(action_dispatcher_stream)
+    }
+}
+
+impl<'a> ToTokens for ActionMatcherCodeGen<'a, Stateful> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let nonterminal_identifier = self.nonterminal_identifier;
+        let filtered_actions = self
+            .action_table_variants
+            .clone()
+            // prune out all the deadstate actions
+            .filter(|variant| !matches!(variant.action, Action::DeadState));
+
+        let variants = filtered_actions.map(
+            |ActionVariant {
+                 state_id,
+                 lookahead,
+                 action,
+             }| {
+                let lookahead_repr = lookahead.as_ref();
+
+                let terminal_variant_repr = if lookahead_repr.contains("::") {
+                    lookahead.as_ref().split("::").last().unwrap()
+                } else {
+                    lookahead_repr
+                };
+
+                // format the variant as an ident.
+                let terminal_repr = format_ident!("{}", terminal_variant_repr);
+
+                // generate the corresponding action representation for each possible state.
+                let action_stream = match action {
+                    Action::Accept => quote!(Action::Accept),
+                    Action::Shift(state) => {
+                        let state = state.as_usize();
+                        quote!(Action::Shift(StateId::unchecked_new(#state)))
                     }
+                    Action::Reduce(reduce_to) => {
+                        let reduce_to = reduce_to.as_usize();
+                        quote!(Action::Reduce(ProductionId::unchecked_new(#reduce_to)))
+                    }
+                    Action::DeadState => quote!(Action::DeadState),
+                };
+
+                // matches on the terminal's representation, hence the wordy
+                // tuple rhs. This casts the type to it's associated
+                // Repr type, which _should_ align with the shown value.
+                quote!(
+                    (#state_id, <<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
+                )
+            },
+        );
+
+        let variants = variants.collect::<TokenStream>();
+        let action_matcher_stream = quote!(
+            // the current state and the copyable representation of the terminal.
+            let action = match (current_state, next_term_repr) {
+                #variants
+                _ => Err(format!(
+                    "unknown parser error with: {:?}",
+                    (current_state, input.peek())
+                )),
+            }?;
+        );
+
+        let rhs_lens = self.rhs_lens.iter();
+
+        // generate reducer variants
+        let reducers = self
+            .reducers
+            .iter()
+            .zip(rhs_lens)
+            .enumerate()
+            // skip the goal production.
+            .skip(1)
+            .map(|(production, (reducer, rhs_len))| (production, reducer, *rhs_len));
+
+        let reducer_variants = reducers
+            .map(|(production, reducer, rhs_len)| match reducer {
+                ReducerAction::Closure(ec) => {
+                    quote!(#production => (#rhs_len, (#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack)),)
+                }
+                ReducerAction::Fn(f) => {
+                    quote!(#production => (#rhs_len, (#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack)),)
+                }
+            })
+            .collect::<TokenStream>();
+
+        let goal_reducer = match &self.reducers.get(0).unwrap() {
+            ReducerAction::Closure(ec) => {
+                quote!((#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
+            }
+            ReducerAction::Fn(f) => {
+                quote!((#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
+            }
+        };
+
+        let action_dispatcher_stream = quote!(
+            match action {
+                Action::Shift(next_state) => {
+                    // a shift should never occur on an eof making this safe to unwrap.
+                    let term = input.next().map(TerminalOrNonTerminal::Terminal).unwrap();
+                    parse_ctx.push_element_mut(term);
+
+                    parse_ctx.push_state_mut(current_state);
+                    parse_ctx.push_state_mut(next_state.as_usize());
+                    Ok(())
+                }
+                Action::Reduce(reduce_to) => {
+                    let (rhs_len, non_term) = match reduce_to.as_usize() {
+                        #reducer_variants
+                        _ => (
+                            0,
+                            Err(format!(
+                                "unable to reduce to production {}.",
+                                reduce_to.as_usize()
+                            )),
+                        ),
+                    };
+
+                    let non_term = non_term?;
+
+                    // peek at the last state before the nth element taken.
+                    let prev_state = {
+                        let mut prev_state = parse_ctx.pop_state_mut();
+                        for _ in 1..rhs_len {
+                            prev_state = parse_ctx.pop_state_mut();
+                        }
+                        let prev_state =
+                            prev_state.ok_or_else(|| "state stack is empty".to_string())?;
+                        parse_ctx.push_state_mut(prev_state);
+                        prev_state
+                    };
+
+                    let goto_state = lookup_goto(prev_state, &non_term).ok_or_else(|| {
+                        format!(
+                            "no goto state for non_terminal {:?} in state {}",
+                            &non_term, current_state
+                        )
+                    })?;
+
+                    parse_ctx.push_state_mut(goto_state);
+
+                    parse_ctx
+                        .element_stack
+                        .push(TerminalOrNonTerminal::NonTerminal(non_term));
+
+                    Ok(())
+                }
+                Action::DeadState => Err(format!(
+                    "unexpected input {:?} for state {}",
+                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(<<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof),
+                    current_state
+                )),
+                Action::Accept => {
+                    let goal = match parse_ctx.element_stack.len() {
+                        1 => #goal_reducer,
+                        0 => Err("Reached accept state with empty stack".to_string()),
+                        _ => Err(format!(
+                            "Reached accept state with data on stack {:?}",
+                            parse_ctx.element_stack,
+                        )),
+                    }?;
+
+                    return Ok(goal);
                 }
             }?;
         );
@@ -666,16 +932,26 @@ struct ParserCtxCodeGen;
 impl ToTokens for ParserCtxCodeGen {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let parser_ctx_stream = quote!(
-            struct ParseContext<T, NT> {
+            struct ParseContext<'a, STATE, T, NT> {
+                /// user provide contextual state.
+                user_state: &'a mut STATE,
                 state_stack: Vec<usize>,
                 element_stack: Vec<lr_core::TerminalOrNonTerminal<T, NT>>,
             }
 
-            impl<T, NT> ParseContext<T, NT> {
+            impl<'a, STATE, T, NT> ParseContext<'a, STATE, T, NT> {
                 const DEFAULT_STACK_SIZE: usize = 128;
+
+                fn new(state: &'a mut STATE) -> Self {
+                    Self {
+                        user_state: state,
+                        state_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
+                        element_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
+                    }
+                }
             }
 
-            impl<T, NT> ParseContext<T, NT> {
+            impl<'a, STATE, T, NT> ParseContext<'a, STATE, T, NT> {
                 fn push_state_mut(&mut self, state_id: usize) {
                     self.state_stack.push(state_id)
                 }
@@ -692,15 +968,6 @@ impl ToTokens for ParserCtxCodeGen {
                     self.element_stack.pop()
                 }
             }
-
-            impl<T, NT> Default for ParseContext<T, NT> {
-                fn default() -> Self {
-                    Self {
-                        state_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
-                        element_stack: Vec::with_capacity(Self::DEFAULT_STACK_SIZE),
-                    }
-                }
-            }
         );
 
         tokens.extend(parser_ctx_stream);
@@ -710,9 +977,23 @@ impl ToTokens for ParserCtxCodeGen {
 fn codegen(
     nonterminal_identifier: &Ident,
     nonterminal_generics: &Generics,
+    maybe_user_state: &Option<ParserState>,
     grammar_table: &ReducibleGrammarTable,
     table: &StateTable,
 ) -> Result<TokenStream, String> {
+    let maybe_user_state_signature = maybe_user_state.as_ref().map(|state| {
+        let ident = &state.ident;
+        let maybe_generics = &state.generics;
+
+        match maybe_generics {
+            Some(generics) => {
+                let params = generics.params.clone();
+                (quote!(#ident #generics), quote!(#params))
+            }
+            None => (quote!(#ident), quote!()),
+        }
+    });
+
     let nonterminal_params = nonterminal_generics.params.clone();
     let nonterminal_signature = if !nonterminal_generics.params.is_empty() {
         quote!(#nonterminal_identifier #nonterminal_generics)
@@ -747,38 +1028,88 @@ fn codegen(
         .productions()
         .map(|production_ref| production_ref.rhs_len())
         .collect::<Vec<_>>();
-    let action_matcher_codegen =
-        ActionMatcherCodeGen::new(nonterminal_identifier, states_iter, reducers, &rhs_lens)
-            .into_token_stream();
 
-    let parser_fn_stream = quote!(
-        impl<#nonterminal_params> lr_core::LrParseable for #nonterminal_signature {
-            fn parse_input<S>(input: S) -> Result<Self, String>
-            where
-                S: IntoIterator<Item = <Self as lr_core::NonTerminalRepresentable>::Terminal>
-            {
-                use lr_core::lr::{Action, ProductionId, StateId};
+    let parseable_fn_stream = if let Some((user_state_ident, user_state_params)) =
+        maybe_user_state_signature
+    {
+        let action_matcher_codegen = ActionMatcherCodeGen::<Stateful>::new(
+            nonterminal_identifier,
+            states_iter,
+            reducers,
+            &rhs_lens,
+        )
+        .into_token_stream();
 
-                let mut input = input.into_iter().peekable();
-                let mut parse_ctx = ParseContext::default();
-                parse_ctx.push_state_mut(0);
+        let user_state_signature = if user_state_params.is_empty() {
+            quote!(#user_state_ident)
+        } else {
+            quote!(#user_state_ident<#user_state_params>)
+        };
 
-                loop {
-                    let current_state = parse_ctx
-                        .pop_state_mut()
-                        .ok_or_else(|| "state stack is empty".to_string())?;
+        quote!(
+            impl<#nonterminal_params> lr_core::LrStatefulParseable for #nonterminal_signature {
+                type State = #user_state_signature;
 
-                    let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<Self as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
-                    #action_matcher_codegen
+                fn parse_input<S>(state: &mut Self::State, input: S) -> Result<Self, String>
+                where
+                    S: IntoIterator<Item = <Self as lr_core::NonTerminalRepresentable>::Terminal>
+                {
+                    use lr_core::lr::{Action, ProductionId, StateId};
+
+                    let mut input = input.into_iter().peekable();
+                    let mut parse_ctx = ParseContext::new(state);
+                    parse_ctx.push_state_mut(0);
+
+                    loop {
+                        let current_state = parse_ctx
+                            .pop_state_mut()
+                            .ok_or_else(|| "state stack is empty".to_string())?;
+
+                        let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<Self as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
+                        #action_matcher_codegen
+                    }
                 }
             }
-        }
-    );
+        )
+    } else {
+        let stateless_action_matcher_codegen = ActionMatcherCodeGen::<Stateless>::new(
+            nonterminal_identifier,
+            states_iter,
+            reducers,
+            &rhs_lens,
+        )
+        .into_token_stream();
+
+        quote!(
+            impl<#nonterminal_params> lr_core::LrParseable for #nonterminal_signature {
+                fn parse_input<S>(input: S) -> Result<Self, String>
+                where
+                    S: IntoIterator<Item = <Self as lr_core::NonTerminalRepresentable>::Terminal>
+                {
+                    use lr_core::lr::{Action, ProductionId, StateId};
+
+                    let mut input = input.into_iter().peekable();
+                    let mut state = ();
+                    let mut parse_ctx = ParseContext::new(&mut state);
+                    parse_ctx.push_state_mut(0);
+
+                    loop {
+                        let current_state = parse_ctx
+                            .pop_state_mut()
+                            .ok_or_else(|| "state stack is empty".to_string())?;
+
+                        let next_term_repr = input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(|| <<Self as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof());
+                        #stateless_action_matcher_codegen
+                    }
+                }
+            }
+        )
+    };
 
     let stream = [
         ParserCtxCodeGen.into_token_stream(),
         goto_table_codegen.into_token_stream(),
-        parser_fn_stream.into_token_stream(),
+        parseable_fn_stream.into_token_stream(),
     ]
     .into_iter()
     .collect();
@@ -787,7 +1118,7 @@ fn codegen(
 }
 
 /// The dispatcher method for enums annotated with the Lr1 derive.
-#[proc_macro_derive(Lr1, attributes(goal, production))]
+#[proc_macro_derive(Lr1, attributes(state, goal, production))]
 pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     use lr_core::{generate_table_from_grammar, GeneratorKind};
 
@@ -795,8 +1126,10 @@ pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let annotated_enum = parse(input).unwrap();
 
+    let maybe_state: Option<ParserState> = state_from_annotated_enum(&annotated_enum).unwrap();
+
     let reducible_grammar_table =
-        generate_grammer_table_from_annotated_enum(&annotated_enum).unwrap();
+        generate_grammar_table_from_annotated_enum(&annotated_enum).unwrap();
 
     let lr_table =
         generate_table_from_grammar(GeneratorKind::Lr1, &reducible_grammar_table.grammar_table)
@@ -810,6 +1143,7 @@ pub fn build_lr1_parser(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     codegen(
         &nonterminal_identifier,
         &nonterminal_generics,
+        &maybe_state,
         &reducible_grammar_table,
         &state_table,
     )

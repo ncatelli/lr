@@ -117,6 +117,16 @@ fn reduce_expr_unary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, Stri
 }
 
 #[allow(unused)]
+fn reduce_goal(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
+    // the only top level expr is an additive expr.
+    if let Some(TermOrNonTerm::NonTerminal(NonTerminal::Expr(inner))) = elems.pop() {
+        Ok(NonTerminal::Expr(inner))
+    } else {
+        Err("expected non-terminal at top of stack in production 3 reducer.".to_string())
+    }
+}
+
+#[allow(unused)]
 fn reduce_multiplicative_unary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
     if let Some(TermOrNonTerm::NonTerminal(nonterm)) = elems.pop() {
         let inner = ExprInner::Unary(UnaryExpr::new(nonterm));
@@ -199,7 +209,7 @@ fn reduce_additive_binary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal,
 
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal {
-    #[goal(r"<Expr>", reduce_expr_unary)]
+    #[goal(r"<Expr>", reduce_goal)]
     #[production(r"<Additive>", reduce_expr_unary)]
     Expr(Box<ExprInner>),
     #[production(r"<Additive> Terminal::Plus <Multiplicative>", reduce_additive_binary)]

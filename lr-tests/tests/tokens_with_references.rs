@@ -120,9 +120,20 @@ fn reduce_e_binary_non_term<'a>(
     }
 }
 
+#[allow(unused)]
+fn reduce_goal<'a>(elems: &mut Vec<TermOrNonTerm<'a>>) -> Result<NonTerminal<'a>, String> {
+    if let Some(TermOrNonTerm::NonTerminal(NonTerminal::E(e))) = elems.pop() {
+        Ok(NonTerminal::E(e))
+    } else {
+        Err(format!(
+            "expected non-terminal at top of stack in production 3 reducer.",
+        ))
+    }
+}
+
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal<'a> {
-    #[goal(r"<E>", reduce_e_unary_non_term)]
+    #[goal(r"<E>", reduce_goal)]
     #[production(r"<E> TerminalKind::Star <B>", |elems| { reduce_e_binary_non_term(2, elems) })]
     #[production(r"<E> TerminalKind::Plus <B>", |elems| { reduce_e_binary_non_term(3, elems) })]
     #[production(r"<B>", reduce_e_unary_non_term)]
