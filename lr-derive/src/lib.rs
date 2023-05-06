@@ -473,6 +473,11 @@ impl<'a> Iterator for ActionIterator<'a> {
     }
 }
 
+enum ActionMatcherState {
+    Stateful,
+    Stateless,
+}
+
 /// A marker trait for representing the kind of state matching code to generate.
 trait ActionMatcherStateHandleable {}
 
@@ -482,23 +487,24 @@ impl ActionMatcherStateHandleable for Stateless {}
 struct Stateful;
 impl ActionMatcherStateHandleable for Stateful {}
 
-struct ActionMatcherCodeGen<'a, MK: ActionMatcherStateHandleable> {
-    matcher_kind: std::marker::PhantomData<MK>,
+struct ActionMatcherCodeGen<'a> {
+    matcher_kind: ActionMatcherState,
     nonterminal_identifier: &'a Ident,
     action_table_variants: ActionIterator<'a>,
     reducers: &'a [ReducerAction],
     rhs_lens: &'a [usize],
 }
 
-impl<'a, MK: ActionMatcherStateHandleable> ActionMatcherCodeGen<'a, MK> {
+impl<'a> ActionMatcherCodeGen<'a> {
     fn new(
+        matcher_kind: ActionMatcherState,
         nonterminal_identifier: &'a Ident,
         action_table_variants: ActionIterator<'a>,
         reducers: &'a [ReducerAction],
         rhs_lens: &'a [usize],
     ) -> Self {
         Self {
-            matcher_kind: std::marker::PhantomData,
+            matcher_kind,
             nonterminal_identifier,
             action_table_variants,
             reducers,
@@ -507,7 +513,7 @@ impl<'a, MK: ActionMatcherStateHandleable> ActionMatcherCodeGen<'a, MK> {
     }
 }
 
-impl<'a> ToTokens for ActionMatcherCodeGen<'a, Stateless> {
+impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let nonterminal_identifier = self.nonterminal_identifier;
         let filtered_actions = self
@@ -581,193 +587,43 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a, Stateless> {
             .map(|(production, (reducer, rhs_len))| (production, reducer, *rhs_len));
 
         let reducer_variants = reducers
-            .map(|(production, reducer, rhs_len)| match reducer {
-                ReducerAction::Closure(ec) => {
-                    quote!(#production => (#rhs_len, (#ec)(&mut parse_ctx.element_stack)),)
-                }
-                ReducerAction::Fn(f) => {
-                    quote!(#production => (#rhs_len, (#f)(&mut parse_ctx.element_stack)),)
-                }
+            .map(|(production, reducer, rhs_len)| match self.matcher_kind {
+                ActionMatcherState::Stateful => match reducer {
+                    ReducerAction::Closure(ec) => {
+                        quote!(#production => (#rhs_len, (#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack)),)
+                    }
+                    ReducerAction::Fn(f) => {
+                        quote!(#production => (#rhs_len, (#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack)),)
+                    }
+                },
+                ActionMatcherState::Stateless => match reducer {
+                    ReducerAction::Closure(ec) => {
+                        quote!(#production => (#rhs_len, (#ec)(&mut parse_ctx.element_stack)),)
+                    }
+                    ReducerAction::Fn(f) => {
+                        quote!(#production => (#rhs_len, (#f)(&mut parse_ctx.element_stack)),)
+                    }
+                },
             })
             .collect::<TokenStream>();
 
-        let goal_reducer = match &self.reducers.get(0).unwrap() {
-            ReducerAction::Closure(ec) => {
-                quote!((#ec)(&mut parse_ctx.element_stack))
-            }
-            ReducerAction::Fn(f) => {
-                quote!((#f)(&mut parse_ctx.element_stack))
-            }
-        };
-
-        let action_dispatcher_stream = quote!(
-            match action {
-                Action::Shift(next_state) => {
-                    // a shift should never occur on an eof making this safe to unwrap.
-                    let term = input.next().map(TerminalOrNonTerminal::Terminal).unwrap();
-                    parse_ctx.push_element_mut(term);
-
-                    parse_ctx.push_state_mut(current_state);
-                    parse_ctx.push_state_mut(next_state.as_usize());
-                    Ok(())
+        let goal_reducer = match self.matcher_kind {
+            ActionMatcherState::Stateful => match &self.reducers.get(0).unwrap() {
+                ReducerAction::Closure(ec) => {
+                    quote!((#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
                 }
-                Action::Reduce(reduce_to) => {
-                    let (rhs_len, non_term) = match reduce_to.as_usize() {
-                        #reducer_variants
-                        _ => (
-                            0,
-                            Err(format!(
-                                "unable to reduce to production {}.",
-                                reduce_to.as_usize()
-                            )),
-                        ),
-                    };
-
-                    let non_term = non_term?;
-
-                    // peek at the last state before the nth element taken.
-                    let prev_state = {
-                        let mut prev_state = parse_ctx.pop_state_mut();
-                        for _ in 1..rhs_len {
-                            prev_state = parse_ctx.pop_state_mut();
-                        }
-                        let prev_state =
-                            prev_state.ok_or_else(|| "state stack is empty".to_string())?;
-                        parse_ctx.push_state_mut(prev_state);
-                        prev_state
-                    };
-
-                    let goto_state = lookup_goto(prev_state, &non_term).ok_or_else(|| {
-                        format!(
-                            "no goto state for non_terminal {:?} in state {}",
-                            &non_term, current_state
-                        )
-                    })?;
-
-                    parse_ctx.push_state_mut(goto_state);
-
-                    parse_ctx
-                        .element_stack
-                        .push(TerminalOrNonTerminal::NonTerminal(non_term));
-
-                    Ok(())
+                ReducerAction::Fn(f) => {
+                    quote!((#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
                 }
-                Action::DeadState => Err(format!(
-                    "unexpected input {:?} for state {}",
-                    input.peek().map(|term| term.to_variant_repr()).unwrap_or_else(<<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::eof),
-                    current_state
-                )),
-                Action::Accept => {
-                    let goal = match parse_ctx.element_stack.len() {
-                        1 => #goal_reducer,
-                        0 => Err("Reached accept state with empty stack".to_string()),
-                        _ => Err(format!(
-                            "Reached accept state with data on stack {:?}",
-                            parse_ctx.element_stack,
-                        )),
-                    }?;
-
-                    return Ok(goal);
-                }
-            }?;
-        );
-
-        tokens.extend(action_matcher_stream);
-        tokens.extend(action_dispatcher_stream)
-    }
-}
-
-impl<'a> ToTokens for ActionMatcherCodeGen<'a, Stateful> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let nonterminal_identifier = self.nonterminal_identifier;
-        let filtered_actions = self
-            .action_table_variants
-            .clone()
-            // prune out all the deadstate actions
-            .filter(|variant| !matches!(variant.action, Action::DeadState));
-
-        let variants = filtered_actions.map(
-            |ActionVariant {
-                 state_id,
-                 lookahead,
-                 action,
-             }| {
-                let lookahead_repr = lookahead.as_ref();
-
-                let terminal_variant_repr = if lookahead_repr.contains("::") {
-                    lookahead.as_ref().split("::").last().unwrap()
-                } else {
-                    lookahead_repr
-                };
-
-                // format the variant as an ident.
-                let terminal_repr = format_ident!("{}", terminal_variant_repr);
-
-                // generate the corresponding action representation for each possible state.
-                let action_stream = match action {
-                    Action::Accept => quote!(Action::Accept),
-                    Action::Shift(state) => {
-                        let state = state.as_usize();
-                        quote!(Action::Shift(StateId::unchecked_new(#state)))
-                    }
-                    Action::Reduce(reduce_to) => {
-                        let reduce_to = reduce_to.as_usize();
-                        quote!(Action::Reduce(ProductionId::unchecked_new(#reduce_to)))
-                    }
-                    Action::DeadState => quote!(Action::DeadState),
-                };
-
-                // matches on the terminal's representation, hence the wordy
-                // tuple rhs. This casts the type to it's associated
-                // Repr type, which _should_ align with the shown value.
-                quote!(
-                    (#state_id, <<#nonterminal_identifier as lr_core::NonTerminalRepresentable>::Terminal as lr_core::TerminalRepresentable>::Repr::#terminal_repr) => Ok(#action_stream),
-                )
             },
-        );
-
-        let variants = variants.collect::<TokenStream>();
-        let action_matcher_stream = quote!(
-            // the current state and the copyable representation of the terminal.
-            let action = match (current_state, next_term_repr) {
-                #variants
-                _ => Err(format!(
-                    "unknown parser error with: {:?}",
-                    (current_state, input.peek())
-                )),
-            }?;
-        );
-
-        let rhs_lens = self.rhs_lens.iter();
-
-        // generate reducer variants
-        let reducers = self
-            .reducers
-            .iter()
-            .zip(rhs_lens)
-            .enumerate()
-            // skip the goal production.
-            .skip(1)
-            .map(|(production, (reducer, rhs_len))| (production, reducer, *rhs_len));
-
-        let reducer_variants = reducers
-            .map(|(production, reducer, rhs_len)| match reducer {
+            ActionMatcherState::Stateless => match &self.reducers.get(0).unwrap() {
                 ReducerAction::Closure(ec) => {
-                    quote!(#production => (#rhs_len, (#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack)),)
+                    quote!((#ec)(&mut parse_ctx.element_stack))
                 }
                 ReducerAction::Fn(f) => {
-                    quote!(#production => (#rhs_len, (#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack)),)
+                    quote!((#f)(&mut parse_ctx.element_stack))
                 }
-            })
-            .collect::<TokenStream>();
-
-        let goal_reducer = match &self.reducers.get(0).unwrap() {
-            ReducerAction::Closure(ec) => {
-                quote!((#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
-            }
-            ReducerAction::Fn(f) => {
-                quote!((#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
-            }
+            },
         };
 
         let action_dispatcher_stream = quote!(
@@ -1029,10 +885,12 @@ fn codegen(
         .map(|production_ref| production_ref.rhs_len())
         .collect::<Vec<_>>();
 
+    // if is stateful?
     let parseable_fn_stream = if let Some((user_state_ident, user_state_params)) =
         maybe_user_state_signature
     {
-        let action_matcher_codegen = ActionMatcherCodeGen::<Stateful>::new(
+        let action_matcher_codegen = ActionMatcherCodeGen::new(
+            ActionMatcherState::Stateful,
             nonterminal_identifier,
             states_iter,
             reducers,
@@ -1072,7 +930,8 @@ fn codegen(
             }
         )
     } else {
-        let stateless_action_matcher_codegen = ActionMatcherCodeGen::<Stateless>::new(
+        let stateless_action_matcher_codegen = ActionMatcherCodeGen::new(
+            ActionMatcherState::Stateless,
             nonterminal_identifier,
             states_iter,
             reducers,
