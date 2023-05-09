@@ -131,14 +131,20 @@ fn reduce_goal(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct State {
+    cnt: usize,
+}
+
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal {
-    #[goal(r"<E>", reduce_goal)]
-    #[production(r"<E> TerminalKind::Star <B>", |elems| { reduce_e_binary_non_term(2, elems) })]
-    #[production(r"<E> TerminalKind::Plus <B>", |elems| { reduce_e_binary_non_term(3, elems) })]
-    #[production(r"<B>", reduce_e_unary_non_term)]
+    #[state(State)]
+    #[goal(r"<E>", |state: &mut State , elems| { state.cnt += 1; reduce_goal(elems) })]
+    #[production(r"<E> TerminalKind::Star <B>", |_, elems| { reduce_e_binary_non_term(2, elems) })]
+    #[production(r"<E> TerminalKind::Plus <B>", |_, elems| { reduce_e_binary_non_term(3, elems) })]
+    #[production(r"<B>", |_, elems| { reduce_e_unary_non_term(elems) })]
     E(Box<NonTermKind>),
-    #[production(r"TerminalKind::Int", reduce_b_non_term)]
+    #[production(r"TerminalKind::Int", |_, elems| { reduce_b_non_term(elems) })]
     B(Terminal),
 }
 
@@ -147,7 +153,7 @@ impl NonTerminalRepresentable for NonTerminal {
 }
 
 #[test]
-fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
+fn derived_macro_generator_should_parse_tokens_with_a_stateful_parser() {
     let input = [
         Terminal::Int(10),
         Terminal::Plus,
@@ -156,7 +162,9 @@ fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
     ];
     let tokenizer = input.into_iter();
 
-    let parse_tree = NonTerminal::parse_input(tokenizer);
+    let mut state = State::default();
+
+    let parse_tree = NonTerminal::parse_input(&mut state, tokenizer);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
         NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::Int(
@@ -166,4 +174,5 @@ fn derived_macro_generator_should_parse_tokens_with_embedded_values() {
     )));
 
     assert_eq!(parse_tree, Ok(expected));
+    assert_eq!(state.cnt, 1)
 }

@@ -1,4 +1,5 @@
-use lr_core::{TerminalOrNonTerminal, TerminalRepresentable, NonTerminalRepresentable};
+use lr_core::prelude::v1::*;
+use lr_core::TerminalOrNonTerminal;
 pub use lr_derive::Lr1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,9 +100,20 @@ fn reduce_e_binary_non_term(
     }
 }
 
+#[allow(unused)]
+fn reduce_goal(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal, String> {
+    if let Some(TermOrNonTerm::NonTerminal(NonTerminal::E(e))) = elems.pop() {
+        Ok(NonTerminal::E(e))
+    } else {
+        Err(format!(
+            "expected non-terminal at top of stack in production 3 reducer.",
+        ))
+    }
+}
+
 #[derive(Debug, Lr1, PartialEq)]
 pub enum NonTerminal {
-    #[goal(r"<E>", reduce_e_unary_non_term)]
+    #[goal(r"<E>", reduce_goal)]
     #[production(r"<E> Terminal::Star <B>", |elems| { reduce_e_binary_non_term(2, elems) })]
     #[production(r"<E> Terminal::Plus <B>", |elems| { reduce_e_binary_non_term(3, elems) })]
     #[production(r"<B>", reduce_e_unary_non_term)]
@@ -112,7 +124,7 @@ pub enum NonTerminal {
 }
 
 impl NonTerminalRepresentable for NonTerminal {
-    type Terminal=Terminal;
+    type Terminal = Terminal;
 }
 
 #[test]
@@ -120,7 +132,7 @@ fn derived_macro_generator_functionality_test() {
     let input = [Terminal::One, Terminal::Plus, Terminal::Zero, Terminal::Eof];
     let tokenizer = input.into_iter();
 
-    let parse_tree = lr_parse_input(tokenizer);
+    let parse_tree = NonTerminal::parse_input(tokenizer);
 
     let expected = NonTerminal::E(Box::new(NonTermKind::Add(
         NonTerminal::E(Box::new(NonTermKind::Unary(NonTerminal::B(Terminal::One)))),

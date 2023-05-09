@@ -1,5 +1,6 @@
 pub mod grammar;
 pub mod lr;
+pub mod prelude;
 
 /// Represents the kind of table that can be generated
 pub enum GeneratorKind {
@@ -58,6 +59,24 @@ impl std::fmt::Display for Error {
             None => write!(f, "{}", &self.kind),
         }
     }
+}
+
+/// LrStatefulParseable defines a trait for parsing a non-terminal symbol from
+/// a given input with persistant state.
+pub trait LrStatefulParseable: NonTerminalRepresentable + Sized {
+    type State;
+
+    fn parse_input<S>(state: &mut Self::State, input: S) -> Result<Self, String>
+    where
+        S: IntoIterator<Item = <Self as NonTerminalRepresentable>::Terminal>;
+}
+
+/// LrParseable defines a trait for parsing a non-terminal symbol from a given
+/// input.
+pub trait LrParseable: NonTerminalRepresentable + Sized {
+    fn parse_input<S>(input: S) -> Result<Self, String>
+    where
+        S: IntoIterator<Item = <Self as NonTerminalRepresentable>::Terminal>;
 }
 
 /// A trait for flagging that a type can be represented as a nonterminal in a
