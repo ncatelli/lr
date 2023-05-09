@@ -26,11 +26,12 @@ impl Production {
 #[derive(Debug, Clone)]
 struct ParserState {
     ident: Ident,
+    generics: Option<Generics>,
 }
 
 impl ParserState {
-    fn new(ident: Ident) -> Self {
-        Self { ident }
+    fn new(ident: Ident, generics: Option<Generics>) -> Self {
+        Self { ident, generics }
     }
 }
 
@@ -72,6 +73,7 @@ impl From<ProductionAttributeMetadata> for GrammarItemAttributeMetadata {
 
 struct StateAttributeMetadata {
     ty: Ident,
+    generics: Option<Generics>,
 }
 
 impl Parse for StateAttributeMetadata {
@@ -85,7 +87,17 @@ impl Parse for StateAttributeMetadata {
             return Err(lookahead.error());
         };
 
-        Ok(Self { ty })
+        // check for type param
+        let lookahead = input.lookahead1();
+        // Attempt to parse out generics, otherwise default to none.
+        let generics = if lookahead.peek(Token![<]) {
+            let generics = input.parse::<Generics>()?;
+            Some(generics)
+        } else {
+            None
+        };
+
+        Ok(Self { ty, generics })
     }
 }
 
@@ -285,8 +297,9 @@ fn state_from_annotated_enum(
                 }
                 GrammarItemAttributeMetadata::State(s) => {
                     let ident = s.ty.clone();
+                    let generics = s.generics.clone();
 
-                    state = Some(ParserState::new(ident))
+                    state = Some(ParserState::new(ident, generics))
                 }
                 // ignore non-metadata variants
                 _ => continue,
@@ -826,7 +839,18 @@ fn codegen(
     grammar_table: &ReducibleGrammarTable,
     table: &StateTable,
 ) -> Result<TokenStream, String> {
-    let maybe_user_state_signature = maybe_user_state.as_ref().map(|state| &state.ident);
+    let maybe_user_state_signature_and_params = maybe_user_state.as_ref().map(|state| {
+        let ident = &state.ident;
+        let maybe_generics = &state.generics;
+
+        match maybe_generics {
+            Some(generics) => {
+                let params = generics.params.clone();
+                (quote!(#ident), quote!(#params))
+            }
+            None => (quote!(#ident), quote!()),
+        }
+    });
 
     let nonterminal_params = nonterminal_generics.params.clone();
     let nonterminal_signature = if !nonterminal_generics.params.is_empty() {
@@ -864,7 +888,9 @@ fn codegen(
         .collect::<Vec<_>>();
 
     // if is stateful?
-    let parseable_fn_stream = if let Some(user_state_signature) = maybe_user_state_signature {
+    let parseable_fn_stream = if let Some((user_state_ident, user_state_params)) =
+        maybe_user_state_signature_and_params
+    {
         let action_matcher_codegen = ActionMatcherCodeGen::new(
             ActionMatcherState::Stateful,
             nonterminal_identifier,
@@ -873,6 +899,12 @@ fn codegen(
             &rhs_lens,
         )
         .into_token_stream();
+
+        let user_state_signature = if user_state_params.is_empty() {
+            quote!(#user_state_ident)
+        } else {
+            quote!(#user_state_ident<#user_state_params>)
+        };
 
         quote!(
             impl<#nonterminal_params> lr_core::LrStatefulParseable for #nonterminal_signature {
