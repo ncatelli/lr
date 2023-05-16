@@ -122,6 +122,79 @@ impl<'a> AsRef<HashMap<NonTerminal<'a>, HashSet<Terminal<'a>>>> for SymbolSet<'a
     }
 }
 
+/// A mapping of non-terminal symbols to their corresponding terminal symbols.
+#[derive(Debug, PartialEq)]
+struct SymbolRefSet {
+    sets: HashMap<NonTerminalRef, HashSet<TerminalRef>>,
+}
+
+impl SymbolRefSet {
+    fn new<NT: AsRef<[NonTerminalRef]>>(non_terminals: NT) -> Self {
+        let sets = non_terminals
+            .as_ref()
+            .iter()
+            .fold(HashMap::new(), |mut acc, &non_terminal| {
+                acc.insert(non_terminal, HashSet::new());
+                acc
+            });
+        Self { sets }
+    }
+
+    /// Inserts a terminal into a non-terminals's set returning true if it already exists.
+    fn insert<T: Into<TerminalRef>>(&mut self, key: NonTerminalRef, terminal: T) -> bool {
+        self.sets
+            .get_mut(&key)
+            .map(|terminal_set| terminal_set.insert(terminal.into()))
+            .unwrap_or(false)
+    }
+
+    /// Sets the terminals for `lhs` to the union of `lhs` and `rhs`.
+    fn union_of_sets(&mut self, lhs: NonTerminalRef, rhs: &NonTerminalRef) -> bool {
+        let mut changed = false;
+
+        // get all terminals from the rhs non-terminal
+        let first_terminal_from_rhs_non_terminal = self.sets.get(rhs).cloned().unwrap_or_default();
+        self.sets.entry(lhs).and_modify(|terminal_set| {
+            for terminal in first_terminal_from_rhs_non_terminal {
+                changed = terminal_set.insert(terminal);
+            }
+        });
+
+        changed
+    }
+
+    #[allow(unused)]
+    fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+        let terminals = grammar_table.terminals().collect::<Vec<_>>();
+        let nonterminals = grammar_table.non_terminals().collect::<Vec<_>>();
+
+        let lines = self
+            .sets
+            .iter()
+            .map(|(nonterm, terms)| {
+                let rhs = terms
+                    .iter()
+                    .map(|term| terminals[term.as_usize()].to_string())
+                    .collect::<Vec<_>>();
+
+                format!(
+                    "{}: {}",
+                    nonterminals[nonterm.as_usize()].as_ref(),
+                    rhs.join(", ")
+                )
+            })
+            .collect::<Vec<_>>();
+
+        lines.join("\n")
+    }
+}
+
+impl<'a> AsRef<HashMap<NonTerminalRef, HashSet<TerminalRef>>> for SymbolRefSet {
+    fn as_ref(&self) -> &HashMap<NonTerminalRef, HashSet<TerminalRef>> {
+        &self.sets
+    }
+}
+
 /// A wrapper type for Lr1 Parser tables.
 pub(crate) struct Lr1;
 
@@ -174,6 +247,73 @@ fn build_first_set<'a>(
     // map initial terminals in each proudction to their non-terminal
     for (non_terminal, first_terminal) in initial_terminals_of_productions {
         first_set.insert(non_terminal, first_terminal);
+    }
+
+    let mut changed = true;
+
+    while changed {
+        changed = false;
+        // set the initial terminal for each production
+        for production_ref in grammar_table.productions() {
+            let lhs_idx = production_ref.lhs;
+            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
+
+            if let Some(SymbolRef::NonTerminal(idx)) = production_ref.rhs.get(0) {
+                // get all terminals from the first non_terminal
+                let first_rhs_non_terminal = non_terminals[idx.as_usize()];
+                if first_set.union_of_sets(lhs_non_terminal, &first_rhs_non_terminal) {
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    first_set
+}
+
+fn build_first_set_ref<'a>(
+    grammar_table: &'a GrammarTable,
+    nullable_nonterminals: &HashSet<NonTerminal<'a>>,
+) -> SymbolRefSet {
+    let nullable_nonterminal_refs = nullable_nonterminals
+        .iter()
+        .filter_map(|nt| grammar_table.non_terminal_mapping(nt))
+        .collect::<Vec<_>>();
+
+    let non_terminals = grammar_table
+        .non_terminals()
+        .filter_map(|nt| grammar_table.non_terminal_mapping(&nt))
+        .collect::<Vec<_>>();
+    let terminals = grammar_table.terminals().collect::<Vec<_>>();
+    let mut first_set = SymbolRefSet::new(&non_terminals);
+
+    // builtin guarantee
+    let epsilon_ref = grammar_table
+        .terminal_mapping(&BuiltinTerminals::Epsilon.into())
+        .unwrap();
+
+    // map nullable nonterminals to epsilon
+    for nullable_nonterm_ref in nullable_nonterminal_refs {
+        first_set.insert(nullable_nonterm_ref, epsilon_ref);
+    }
+
+    // set the initial terminal for each production
+    let initial_terminals_of_productions =
+        grammar_table.productions().filter_map(|production_ref| {
+            let lhs_idx = production_ref.lhs;
+            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
+
+            if let Some(SymbolRef::Terminal(first_terminal)) = production_ref.rhs.get(0) {
+                // if the the first terminal in the pattern isn't epsilon, add it.
+                Some((lhs_non_terminal, first_terminal))
+            } else {
+                None
+            }
+        });
+
+    // map initial terminals in each proudction to their non-terminal
+    for (non_terminal, first_terminal) in initial_terminals_of_productions {
+        first_set.insert(non_terminal, *first_terminal);
     }
 
     let mut changed = true;
@@ -361,13 +501,16 @@ impl<'a> ItemRef<'a> {
         }
     }
 
+    fn is_completed(&self) -> bool {
+        self.dot_position == self.production.rhs.len()
+    }
+
     /// Advances the dot position of a previous ItemRef, returning a new
     /// ItemRef if the position is not the last element in the Item.
-    fn to_next_dot_postion(&self) -> Option<Self> {
-        let prev_rhs_len = self.production.rhs.len();
-        let is_last = self.dot_position == prev_rhs_len;
+    fn advance_dot_position(&self) -> Option<Self> {
+        let is_completed = self.is_completed();
 
-        if is_last {
+        if is_completed {
             None
         } else {
             let advanced = {
@@ -386,6 +529,14 @@ impl<'a> ItemRef<'a> {
         let dot_position = self.dot_position;
 
         self.production.rhs.get(dot_position)
+    }
+
+    fn beta(&self) -> &[SymbolRef] {
+        if self.is_completed() {
+            &self.production.rhs[self.dot_position..]
+        } else {
+            &self.production.rhs[(self.dot_position + 1)..]
+        }
     }
 }
 
@@ -544,6 +695,120 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     set
 }
 
+fn first(
+    first_symbol_sets: &SymbolRefSet,
+    beta: &[SymbolRef],
+    lookahead: TerminalRef,
+) -> HashSet<TerminalRef> {
+    let first_symbol_in_beta = beta.first();
+
+    let mut firsts = {
+        let mut firsts = HashSet::new();
+        firsts.insert(lookahead);
+
+        firsts
+    };
+
+    match first_symbol_in_beta {
+        Some(SymbolRef::Terminal(term_ref)) => {
+            firsts.insert(*term_ref);
+        }
+        Some(SymbolRef::NonTerminal(nt_ref)) => {
+            if let Some(nt_firsts) = first_symbol_sets.sets.get(nt_ref) {
+                for &term in nt_firsts {
+                    firsts.insert(term);
+                }
+            };
+        }
+        None => {}
+    };
+
+    firsts
+}
+
+/// Generates the closure of a `ItemSet` using the following algorithm.
+///
+/// ```ignore
+/// Closure(I)
+/// repeat
+///     for (each item [ A -> ?.B?, a ] in I )
+///         for (each production B -> ? in G’)
+///           for (each terminal b in FIRST(?a))
+///             add [ B -> .? , b ] to set I;
+/// until no more items are added to I;
+/// return I;
+/// ```
+fn closure_two<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
+    // if the itemset is empty exit early
+    if i.is_empty() {
+        return i;
+    }
+
+    let nullable_nonterms = find_nullable_nonterminals(grammar_table);
+    let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
+
+    let mut set = i
+        .clone()
+        .items
+        .into_iter()
+        .map(|item| {
+            let lookahead = item.lookahead;
+            let beta = item.beta().to_vec();
+
+            (item, beta, lookahead)
+        })
+        .collect::<Vec<_>>();
+
+    let mut in_set = set.iter().fold(HashSet::new(), |mut acc, (i, _, _)| {
+        acc.insert(i.clone());
+        acc
+    });
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+
+        for (item, beta, lookahead) in set.clone() {
+            let symbol_after_dot_position = item.symbol_after_dot();
+            let maybe_non_terminal_ref = match symbol_after_dot_position {
+                Some(SymbolRef::NonTerminal(s)) => Some(*s),
+                _ => None,
+            };
+
+            if let Some(non_terminal_ref) = maybe_non_terminal_ref {
+                let follow_set = {
+                    let mut follow_set = first(&first_symbolref_set, &beta, lookahead)
+                        .into_iter()
+                        .collect::<Vec<_>>();
+
+                    follow_set.sort();
+                    follow_set
+                };
+
+                let matching_productions = grammar_table
+                    .productions()
+                    .filter(|production| production.lhs == non_terminal_ref);
+
+                for production in matching_productions {
+                    let new_item = follow_set
+                        .iter()
+                        .map(|lookahead| ItemRef::new(production, 0, *lookahead));
+
+                    for new in new_item {
+                        if in_set.insert(new.clone()) {
+                            set.push((new, beta.clone(), lookahead));
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let item_set = set.into_iter().map(|i| i.0).collect();
+    ItemSet::new(item_set)
+}
+
 /// Generates the goto of an `ItemSet` using the following algorithm.
 ///
 /// ```ignore
@@ -563,10 +828,35 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> I
 
     let j = symbols_after_dot
         .into_iter()
-        .filter_map(|item| item.to_next_dot_postion())
+        .filter_map(|item| item.advance_dot_position())
         .collect();
 
     closure(grammar_table, j)
+}
+
+/// Generates the goto of an `ItemSet` using the following algorithm.
+///
+/// ```ignore
+/// Goto(I, X)
+/// Initialise J to be the empty set;
+/// for ( each item A -> ?.X?, a ] in I )
+///     Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
+/// return Closure(J);    /* apply closure to the set */
+/// ```
+fn goto_two<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> ItemSet<'a> {
+    // reverse the initial set so it can be popped.
+    let symbols_after_dot = i.items.iter().filter(|item_ref| {
+        let symbol_after_dot = item_ref.symbol_after_dot();
+
+        symbol_after_dot == Some(&x)
+    });
+
+    let j = symbols_after_dot
+        .into_iter()
+        .filter_map(|item| item.advance_dot_position())
+        .collect();
+
+    closure_two(grammar_table, j)
 }
 
 /// Contains the canonical collection of `ItemSet` states ordered by their
@@ -629,7 +919,7 @@ impl<'a> IntoIterator for ItemCollection<'a> {
 ///
 /// ```ignore
 /// s0 ← closure ( [S’→S,EOF] )
-/// S ← {s0 }
+/// S ← { s0 }
 /// k ← 1
 /// while (S is still changing )
 /// ∀ sj ∈ S and ∀ x ∈ ( T ∪ NT )
@@ -644,6 +934,74 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
     let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
+
+    let mut changing = collection.insert(s0);
+    let mut new_states = vec![];
+
+    while changing {
+        changing = false;
+
+        for parent_state in collection.item_sets.iter() {
+            let symbols_after_dot = {
+                let mut symbol_after_dot = parent_state
+                    .items
+                    .iter()
+                    .filter_map(|item| item.symbol_after_dot().copied())
+                    .collect::<Vec<_>>();
+                symbol_after_dot.dedup();
+
+                symbol_after_dot.into_iter()
+            };
+
+            for symbol_after_dot in symbols_after_dot {
+                let new_state = goto(grammar_table, parent_state, symbol_after_dot);
+
+                // Strips any items from the new state that exist in the parent
+                // state.
+                let non_duplicate_items = new_state
+                    .items
+                    .into_iter()
+                    .filter(|item| !parent_state.contains(item));
+
+                // Constructs the new state from the non duplicate item set, assigining a parent.
+                let new_non_duplicate_state = non_duplicate_items.collect();
+
+                if !collection.contains(&new_non_duplicate_state) {
+                    new_states.push(new_non_duplicate_state);
+                }
+            }
+        }
+
+        for new_state in new_states {
+            // if there are new states to insert, mark the collection as
+            // changing.
+            changing = collection.insert(new_state);
+        }
+        new_states = vec![];
+    }
+
+    collection
+}
+
+/// Constructs a canonical collection from a GrammarTable using the following algorithm.
+///
+/// ```ignore
+/// s0 ← closure ( [S’→S,EOF] )
+/// S ← { s0 }
+/// k ← 1
+/// while (S is still changing )
+/// ∀ sj ∈ S and ∀ x ∈ ( T ∪ NT )
+///     sk ← goto(sj ,x)
+///     record sj → sk on x
+/// if sk ∉ S then
+///     S ← S ∪ sk
+///     k ← k + 1
+/// ```
+fn build_canonical_collection_two(grammar_table: &GrammarTable) -> ItemCollection {
+    let mut collection = ItemCollection::default();
+
+    let initial_item_set = initial_item_set(grammar_table);
+    let s0 = closure_two(grammar_table, initial_item_set);
 
     let mut changing = collection.insert(s0);
     let mut new_states = vec![];
@@ -1293,5 +1651,53 @@ mod tests {
         for ((sid, items_in_state), expected_items) in state_productions_assertion_tuples {
             assert_eq!((sid, items_in_state), (sid, expected_items))
         }
+    }
+
+    #[test]
+    fn should_correctly_generate_closure_sets_for_recursive_grammar() {
+        let grammar = "
+<Expression> ::= <Primary>
+<Primary> ::= Token::Identifier  
+<Primary> ::= <Constant>
+<Primary> ::= Token::StringLiteral
+<Primary> ::= Token::LeftParen <Expression> Token::RightParen
+<Constant> ::= Token::IntegerConstant
+<Constant> ::= Token::CharacterConstant
+<Constant> ::= Token::FloatingConstant
+        ";
+        let grammar_table = load_grammar(grammar).unwrap();
+
+        let nullable_terms = find_nullable_nonterminals(&grammar_table);
+        let first_sets = build_first_set(&grammar_table, &nullable_terms);
+
+        for (nt, expected_terms) in [
+            ("<*>", 6),
+            ("<Expression>", 6),
+            ("<Primary>", 6),
+            ("<Constant>", 3),
+        ] {
+            let key = NonTerminal::from(nt);
+            let first_set = first_sets.sets.get(&key).unwrap();
+            assert_eq!(first_set.len(), expected_terms);
+        }
+
+        let initial_item_set = initial_item_set(&grammar_table);
+
+        assert_eq!(initial_item_set.len(), 1);
+        // initial item set
+        let s0 = closure_two(&grammar_table, initial_item_set);
+        assert_eq!(s0.len(), 9, "{}", {
+            let mut collection = ItemCollection::default();
+            collection.insert(s0.clone());
+            collection.human_readable_format(&grammar_table)
+        });
+
+        let collection = build_canonical_collection_two(&grammar_table);
+        assert_eq!(
+            collection.states(),
+            22,
+            "{}",
+            collection.human_readable_format(&grammar_table)
+        );
     }
 }

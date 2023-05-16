@@ -59,7 +59,7 @@ impl<'a> std::fmt::Display for Symbol<'a> {
 }
 
 /// A wrapper type for non-terminals that reference the grammar table.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NonTerminalRef(usize);
 
 impl NonTerminalRef {
@@ -88,7 +88,7 @@ impl std::fmt::Display for NonTerminalRef {
 }
 
 /// A wrapper type for terminals that reference the grammar table.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TerminalRef(usize);
 
 impl TerminalRef {
