@@ -122,7 +122,7 @@ impl SymbolRefSet {
     }
 }
 
-impl<'a> AsRef<HashMap<NonTerminalRef, HashSet<TerminalRef>>> for SymbolRefSet {
+impl AsRef<HashMap<NonTerminalRef, HashSet<TerminalRef>>> for SymbolRefSet {
     fn as_ref(&self) -> &HashMap<NonTerminalRef, HashSet<TerminalRef>> {
         &self.sets
     }
@@ -468,7 +468,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
             if let Some(non_terminal_ref) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
-                    let mut follow_set = first(&first_symbolref_set, &[&lookahead_set, &beta])
+                    let mut follow_set = first(&first_symbolref_set, &[&lookahead_set, beta])
                         .into_iter()
                         .collect::<Vec<_>>();
 
