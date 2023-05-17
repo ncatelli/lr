@@ -320,7 +320,7 @@ impl<'a> ItemRef<'a> {
 }
 
 /// ItemSet contains an ordered list of item references.
-#[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Hash, Debug, Clone, Eq)]
 struct ItemSet<'a> {
     items: Vec<ItemRef<'a>>,
 }
@@ -384,6 +384,15 @@ impl<'a> ItemSet<'a> {
                 format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
             })
             .collect::<String>()
+    }
+}
+
+impl<'a> PartialEq for ItemSet<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        let lhs = self.items.iter().collect::<HashSet<_>>();
+        let rhs = other.items.iter().collect::<HashSet<_>>();
+
+        lhs == rhs
     }
 }
 
@@ -451,12 +460,14 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
             let lookahead = item.lookahead;
             let beta = item.beta();
             let symbol_after_dot_position = item.symbol_after_dot();
-            let maybe_non_terminal_ref = match symbol_after_dot_position {
+
+            // handles for terminals and end of production.
+            let maybe_next_symbol_after_dot_is_non_terminal = match symbol_after_dot_position {
                 Some(SymbolRef::NonTerminal(s)) => Some(*s),
                 _ => None,
             };
 
-            if let Some(non_terminal_ref) = maybe_non_terminal_ref {
+            if let Some(non_terminal_ref) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
                     let mut follow_set = first(&first_symbolref_set, &[&lookahead_set, &beta])
@@ -947,11 +958,12 @@ fn build_table<'a>(
 mod tests {
     use super::*;
 
-    const TEST_GRAMMAR: &str = "<E> ::= <T>
-<E> ::= ( <E> )
-<T> ::= n
-<T> ::= + <T>
-<T> ::= <T> + n
+    const TEST_GRAMMAR: &str = "
+<E> ::= <T> - <E>
+<E> ::= <T>
+<T> ::= <F> * <T>
+<T> ::= <F>
+<F> ::= n
 ";
 
     #[test]
@@ -1054,12 +1066,8 @@ mod tests {
 
     #[test]
     fn closure_generates_expected_value_for_itemset() {
-        let grammar = "
-<E> ::= <T> - <E>
-<E> ::= <T>
-<T> ::= <F> * <T>
-<T> ::= <F>
-<F> ::= n";
+        let grammar = TEST_GRAMMAR;
+
         let grammar_table = load_grammar(grammar);
         let grammar_table = grammar_table.unwrap();
 
@@ -1112,58 +1120,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "need to address shift/reduce conflicts"]
-    fn collection_generates_expected_value_for_itemset() {
-        let grammar = TEST_GRAMMAR;
-        let grammar_table = load_grammar(grammar).unwrap();
-
-        let initial_item_set = initial_item_set(&grammar_table);
-        let s0 = closure(&grammar_table, initial_item_set);
-        assert_eq!(s0.len(), 6);
-
-        let mut symbols_after_dot = {
-            let mut symbol_after_dot = s0
-                .items
-                .iter()
-                .filter_map(|item| item.symbol_after_dot().copied())
-                .collect::<Vec<_>>();
-            symbol_after_dot.dedup();
-
-            symbol_after_dot.into_iter()
-        };
-
-        for (generation, expected_items) in [1, 2, 6, 1, 4]
-            .into_iter()
-            .enumerate()
-            .map(|(gen, expected_productions)| (gen + 1, expected_productions))
-        {
-            let symbol_after_dot = symbols_after_dot.next().unwrap();
-            let state = goto(&grammar_table, &s0, symbol_after_dot);
-            assert_eq!(
-                state.len(),
-                expected_items,
-                "\ngeneration: {}\nterminal: {}\n{}",
-                generation,
-                match symbol_after_dot {
-                    SymbolRef::NonTerminal(s) => {
-                        grammar_table
-                            .non_terminals()
-                            .nth(s.as_usize())
-                            .map(Symbol::NonTerminal)
-                    }
-                    SymbolRef::Terminal(t) => grammar_table
-                        .terminals()
-                        .nth(t.as_usize())
-                        .map(Symbol::Terminal),
-                }
-                .unwrap(),
-                state.human_readable_format(&grammar_table)
-            );
-        }
-    }
-
-    #[test]
-    #[ignore = "todo"]
     fn build_canonical_collection_generates_expected_states() {
         let grammar = "
 <E> ::= <T> - <E>
