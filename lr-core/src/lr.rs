@@ -264,7 +264,7 @@ fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<NonTermin
     nullable_nonterminal_productions
 }
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ItemRef<'a> {
     production: &'a ProductionRef,
     dot_position: usize,
@@ -448,9 +448,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let nullable_nonterms = find_nullable_nonterminals(grammar_table);
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
-    let mut set = i.items.clone();
-
-    let mut in_set = set.iter().cloned().collect::<HashSet<_>>();
+    let mut set = i.items.iter().cloned().collect::<HashSet<_>>();
 
     let mut changed = true;
     while changed {
@@ -488,8 +486,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                         .map(|lookahead| ItemRef::new(production, 0, *lookahead));
 
                     for new in new_item {
-                        if in_set.insert(new.clone()) {
-                            set.push(new);
+                        if set.insert(new.clone()) {
                             changed = true;
                         }
                     }
@@ -498,7 +495,10 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         }
     }
 
-    ItemSet::new(set)
+    let mut new_set = set.into_iter().collect::<Vec<_>>();
+    new_set.sort();
+
+    ItemSet::new(new_set)
 }
 
 /// Generates the goto of an `ItemSet` using the following algorithm.
@@ -1194,6 +1194,48 @@ mod tests {
         assert_eq!(
             collection.states(),
             22,
+            "{}",
+            collection.human_readable_format(&grammar_table)
+        );
+    }
+
+    #[test]
+    fn should_correctly_generate_closure_sets_for_alternate_grammar() {
+        let grammar = "
+<E> ::= <E> * <B>
+<E> ::= <E> + <B> 
+<E> ::= <B>
+<B> ::= 0 
+<B> ::= 1
+        ";
+        let grammar_table = load_grammar(grammar).unwrap();
+
+        let nullable_terms = find_nullable_nonterminals(&grammar_table);
+        let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
+
+        for (nt, expected_terms) in [("<*>", 2), ("<E>", 2), ("<B>", 2)] {
+            let key = grammar_table
+                .non_terminal_mapping(&NonTerminal::from(nt))
+                .unwrap();
+            let first_set = first_sets.sets.get(&key).unwrap();
+            assert_eq!(first_set.len(), expected_terms);
+        }
+
+        let initial_item_set = initial_item_set(&grammar_table);
+
+        assert_eq!(initial_item_set.len(), 1);
+        // initial item set
+        let s0 = closure(&grammar_table, initial_item_set);
+        assert_eq!(s0.len(), 16, "{}", {
+            let mut collection = ItemCollection::default();
+            collection.insert(s0.clone());
+            collection.human_readable_format(&grammar_table)
+        });
+
+        let collection = build_canonical_collection(&grammar_table);
+        assert_eq!(
+            collection.states(),
+            9,
             "{}",
             collection.human_readable_format(&grammar_table)
         );
