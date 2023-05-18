@@ -1149,9 +1149,81 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct GrammarTestCase<'a> {
+        grammar_table: &'a str,
+        expected_first_set_pairings: HashMap<&'a str, usize>,
+        expected_s0_productions: usize,
+        expected_states: usize,
+    }
+
+    impl<'a> GrammarTestCase<'a> {
+        fn with_grammar(mut self, grammar: &'a str) -> Self {
+            self.grammar_table = grammar;
+            self
+        }
+
+        fn with_expected_first_set_pair(
+            mut self,
+            non_terminal: &'a str,
+            first_set_cnt: usize,
+        ) -> Self {
+            self.expected_first_set_pairings
+                .insert(non_terminal, first_set_cnt);
+            self
+        }
+
+        fn expected_s0_productions(mut self, state_cnt: usize) -> Self {
+            self.expected_s0_productions = state_cnt;
+            self
+        }
+
+        fn with_expected_states_cnt(mut self, state_cnt: usize) -> Self {
+            self.expected_states = state_cnt;
+            self
+        }
+    }
+
+    impl<'a> GrammarTestCase<'a> {
+        fn test(&self) {
+            let grammar_table = load_grammar(&self.grammar_table).unwrap();
+            let nullable_terms = find_nullable_nonterminals(&grammar_table);
+            let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
+
+            for (&nt, &expected_terms) in self.expected_first_set_pairings.iter() {
+                let key = grammar_table
+                    .non_terminal_mapping(&NonTerminal::from(nt))
+                    .unwrap();
+                let first_set = first_sets.sets.get(&key).unwrap();
+                assert_eq!(first_set.len(), expected_terms);
+            }
+
+            let initial_item_set = initial_item_set(&grammar_table);
+
+            assert_eq!(initial_item_set.len(), 1);
+            // initial item set
+            let s0 = closure(&grammar_table, initial_item_set);
+            assert_eq!(s0.len(), self.expected_s0_productions, "{}", {
+                let mut collection = ItemCollection::default();
+                collection.insert(s0.clone());
+                collection.human_readable_format(&grammar_table)
+            });
+
+            let collection = build_canonical_collection(&grammar_table);
+            assert_eq!(
+                collection.states(),
+                self.expected_states,
+                "{}",
+                collection.human_readable_format(&grammar_table)
+            );
+        }
+    }
+
     #[test]
     fn should_correctly_generate_closure_sets_for_recursive_grammar() {
-        let grammar = "
+        let test_case_1 = GrammarTestCase::default()
+            .with_grammar(
+                "
 <Expression> ::= <Primary>
 <Primary> ::= Token::Identifier  
 <Primary> ::= <Constant>
@@ -1160,84 +1232,33 @@ mod tests {
 <Constant> ::= Token::IntegerConstant
 <Constant> ::= Token::CharacterConstant
 <Constant> ::= Token::FloatingConstant
-        ";
-        let grammar_table = load_grammar(grammar).unwrap();
+",
+            )
+            .with_expected_first_set_pair("<*>", 6)
+            .with_expected_first_set_pair("<Expression>", 6)
+            .with_expected_first_set_pair("<Primary>", 6)
+            .with_expected_first_set_pair("<Constant>", 3)
+            .expected_s0_productions(9)
+            .with_expected_states_cnt(22);
 
-        let nullable_terms = find_nullable_nonterminals(&grammar_table);
-        let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
-
-        for (nt, expected_terms) in [
-            ("<*>", 6),
-            ("<Expression>", 6),
-            ("<Primary>", 6),
-            ("<Constant>", 3),
-        ] {
-            let key = grammar_table
-                .non_terminal_mapping(&NonTerminal::from(nt))
-                .unwrap();
-            let first_set = first_sets.sets.get(&key).unwrap();
-            assert_eq!(first_set.len(), expected_terms);
-        }
-
-        let initial_item_set = initial_item_set(&grammar_table);
-
-        assert_eq!(initial_item_set.len(), 1);
-        // initial item set
-        let s0 = closure(&grammar_table, initial_item_set);
-        assert_eq!(s0.len(), 9, "{}", {
-            let mut collection = ItemCollection::default();
-            collection.insert(s0.clone());
-            collection.human_readable_format(&grammar_table)
-        });
-
-        let collection = build_canonical_collection(&grammar_table);
-        assert_eq!(
-            collection.states(),
-            22,
-            "{}",
-            collection.human_readable_format(&grammar_table)
-        );
-    }
-
-    #[test]
-    fn should_correctly_generate_closure_sets_for_alternate_grammar() {
-        let grammar = "
+        let test_case_2 = GrammarTestCase::default()
+            .with_grammar(
+                "
 <E> ::= <E> * <B>
 <E> ::= <E> + <B> 
 <E> ::= <B>
 <B> ::= 0 
 <B> ::= 1
-        ";
-        let grammar_table = load_grammar(grammar).unwrap();
+        ",
+            )
+            .with_expected_first_set_pair("<*>", 2)
+            .with_expected_first_set_pair("<E>", 2)
+            .with_expected_first_set_pair("<B>", 2)
+            .expected_s0_productions(16)
+            .with_expected_states_cnt(9);
 
-        let nullable_terms = find_nullable_nonterminals(&grammar_table);
-        let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
-
-        for (nt, expected_terms) in [("<*>", 2), ("<E>", 2), ("<B>", 2)] {
-            let key = grammar_table
-                .non_terminal_mapping(&NonTerminal::from(nt))
-                .unwrap();
-            let first_set = first_sets.sets.get(&key).unwrap();
-            assert_eq!(first_set.len(), expected_terms);
+        for test_case in [test_case_1, test_case_2] {
+            test_case.test()
         }
-
-        let initial_item_set = initial_item_set(&grammar_table);
-
-        assert_eq!(initial_item_set.len(), 1);
-        // initial item set
-        let s0 = closure(&grammar_table, initial_item_set);
-        assert_eq!(s0.len(), 16, "{}", {
-            let mut collection = ItemCollection::default();
-            collection.insert(s0.clone());
-            collection.human_readable_format(&grammar_table)
-        });
-
-        let collection = build_canonical_collection(&grammar_table);
-        assert_eq!(
-            collection.states(),
-            9,
-            "{}",
-            collection.human_readable_format(&grammar_table)
-        );
     }
 }
