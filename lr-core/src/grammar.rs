@@ -59,7 +59,7 @@ impl<'a> std::fmt::Display for Symbol<'a> {
 }
 
 /// A wrapper type for non-terminals that reference the grammar table.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NonTerminalRef(usize);
 
 impl NonTerminalRef {
@@ -88,7 +88,7 @@ impl std::fmt::Display for NonTerminalRef {
 }
 
 /// A wrapper type for terminals that reference the grammar table.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TerminalRef(usize);
 
 impl TerminalRef {
@@ -117,7 +117,7 @@ impl std::fmt::Display for TerminalRef {
 }
 
 /// An enum for storing a symbol reference id within a given grammar.
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SymbolRef {
     NonTerminal(NonTerminalRef),
     Terminal(TerminalRef),
@@ -133,7 +133,7 @@ impl std::fmt::Display for SymbolRef {
 }
 
 /// A structure representing a grammar production. Containing valid references to a
-#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProductionRef {
     /// The left-hand side symbol of a production
     pub lhs: NonTerminalRef,
