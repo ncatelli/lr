@@ -448,6 +448,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let nullable_nonterms = find_nullable_nonterminals(grammar_table);
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
+    // DEVNOTE: this should probably be converted over to sets to save a clone.
     let mut set = i.items.iter().cloned().collect::<Vec<_>>();
     let mut in_set = set.iter().cloned().collect::<HashSet<_>>();
 
@@ -604,12 +605,16 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     let s0 = closure(grammar_table, initial_item_set);
 
     let mut changing = collection.insert(s0);
+
+    // DEVNOTE: this should probably be converted over to sets to save a clone.
     let mut new_states = vec![];
+    let mut in_new_states = HashSet::new();
+    let mut new_sets_idx = 0_usize;
 
     while changing {
         changing = false;
 
-        for parent_state in collection.item_sets.iter() {
+        for parent_state in collection.item_sets[new_sets_idx..].iter() {
             let symbols_after_dot = {
                 let mut symbol_after_dot = parent_state
                     .items
@@ -626,20 +631,27 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
                 // Strips any items from the new state that exist in the parent
                 // state.
-                let non_duplicate_items = new_state
+                let non_duplicate_items_set = new_state
                     .items
                     .into_iter()
-                    .filter(|item| !parent_state.contains(item));
+                    .filter(|item| !parent_state.contains(item))
+                    // Constructs the new state from the non duplicate item set, assigining a parent.
+                    .collect::<ItemSet>();
 
-                // Constructs the new state from the non duplicate item set, assigining a parent.
-                let new_non_duplicate_state = non_duplicate_items.collect();
-
-                if !collection.contains(&new_non_duplicate_state) {
-                    new_states.push(new_non_duplicate_state);
+                if !collection.contains(&non_duplicate_items_set) {
+                    let is_unique_new_state = in_new_states.insert(non_duplicate_items_set.clone());
+                    // only push the new state if it's unique.
+                    if is_unique_new_state {
+                        new_states.push(non_duplicate_items_set);
+                    }
                 }
             }
         }
 
+        // bump the offset to account for only new states.
+        new_sets_idx = collection.states();
+
+        // insert all new states
         for new_state in new_states {
             // if there are new states to insert, mark the collection as
             // changing.
