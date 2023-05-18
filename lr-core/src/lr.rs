@@ -448,7 +448,8 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let nullable_nonterms = find_nullable_nonterminals(grammar_table);
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
-    let mut set = i.items.iter().cloned().collect::<HashSet<_>>();
+    let mut set = i.items.iter().cloned().collect::<Vec<_>>();
+    let mut in_set = set.iter().cloned().collect::<HashSet<_>>();
 
     let mut changed = true;
     while changed {
@@ -468,11 +469,10 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
             if let Some(non_terminal_ref) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
-                    let mut follow_set = first(&first_symbolref_set, &[&lookahead_set, beta])
+                    let follow_set = first(&first_symbolref_set, &[&lookahead_set, beta])
                         .into_iter()
                         .collect::<Vec<_>>();
 
-                    follow_set.sort();
                     follow_set
                 };
 
@@ -486,7 +486,9 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                         .map(|lookahead| ItemRef::new(production, 0, *lookahead));
 
                     for new in new_item {
-                        if set.insert(new.clone()) {
+                        let new_item_inserted = in_set.insert(new.clone());
+                        if new_item_inserted {
+                            set.push(new);
                             changed = true;
                         }
                     }
@@ -495,8 +497,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         }
     }
 
-    let mut new_set = set.into_iter().collect::<Vec<_>>();
-    new_set.sort();
+    let new_set = set.into_iter().collect::<Vec<_>>();
 
     ItemSet::new(new_set)
 }
