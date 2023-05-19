@@ -464,7 +464,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
     // DEVNOTE: this should probably be converted over to sets to save a clone.
-    let mut set = i.items.iter().cloned().collect::<Vec<_>>();
+    let mut set = i.items.to_vec();
     let mut in_set = set.iter().cloned().collect::<HashSet<_>>();
 
     let mut changed = true;
