@@ -340,11 +340,6 @@ impl<'a> ItemSet<'a> {
         self.items.len()
     }
 
-    /// Returns a boolean signifying if the passed item exists in the item set.
-    fn contains(&self, item: &ItemRef<'a>) -> bool {
-        self.items.contains(item)
-    }
-
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
         self.items
             .iter()
@@ -403,20 +398,28 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
     }
 }
 
-fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> HashSet<TerminalRef> {
-    let mut firsts = HashSet::new();
+fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
+    let mut in_firsts = HashSet::new();
+    let mut firsts = vec![];
 
     for beta_set in beta_sets {
         let first_symbol_in_beta = beta_set.first();
 
         match first_symbol_in_beta {
             Some(SymbolRef::Terminal(term_ref)) => {
-                firsts.insert(*term_ref);
+                let first_added_to_set = in_firsts.insert(*term_ref);
+                if first_added_to_set {
+                    firsts.push(*term_ref)
+                }
             }
             Some(SymbolRef::NonTerminal(nt_ref)) => {
                 if let Some(nt_firsts) = first_symbol_sets.sets.get(nt_ref) {
-                    for &term in nt_firsts {
-                        firsts.insert(term);
+                    for &term_ref in nt_firsts {
+                        in_firsts.insert(term_ref);
+                        let first_added_to_set = in_firsts.insert(term_ref);
+                        if first_added_to_set {
+                            firsts.push(term_ref)
+                        }
                     }
                 };
             }
@@ -425,6 +428,18 @@ fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> HashSe
     }
 
     firsts
+}
+
+fn follow(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
+    for beta_set in beta_sets {
+        let firsts = first(first_symbol_sets, &[beta_set]);
+        // break the loop if the first set returns.
+        if !firsts.is_empty() {
+            return firsts;
+        }
+    }
+
+    vec![]
 }
 
 /// Generates the closure of a `ItemSet` using the following algorithm.
@@ -470,11 +485,9 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
             if let Some(non_terminal_ref) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
-                    let follow_set = first(&first_symbolref_set, &[&lookahead_set, beta])
+                    follow(&first_symbolref_set, &[beta, &lookahead_set])
                         .into_iter()
-                        .collect::<Vec<_>>();
-
-                    follow_set
+                        .collect::<Vec<_>>()
                 };
 
                 let matching_productions = grammar_table
@@ -629,20 +642,11 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
-                // Strips any items from the new state that exist in the parent
-                // state.
-                let non_duplicate_items_set = new_state
-                    .items
-                    .into_iter()
-                    .filter(|item| !parent_state.contains(item))
-                    // Constructs the new state from the non duplicate item set, assigining a parent.
-                    .collect::<ItemSet>();
-
-                if !collection.contains(&non_duplicate_items_set) {
-                    let is_unique_new_state = in_new_states.insert(non_duplicate_items_set.clone());
+                if !collection.contains(&new_state) {
+                    let is_unique_new_state = in_new_states.insert(new_state.clone());
                     // only push the new state if it's unique.
                     if is_unique_new_state {
-                        new_states.push(non_duplicate_items_set);
+                        new_states.push(new_state);
                     }
                 }
             }
@@ -657,7 +661,9 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             // changing.
             changing = collection.insert(new_state);
         }
+        // reset the new states
         new_states = vec![];
+        in_new_states.clear();
     }
 
     collection
@@ -1166,8 +1172,8 @@ mod tests {
     struct GrammarTestCase<'a> {
         grammar_table: &'a str,
         expected_first_set_pairings: HashMap<&'a str, usize>,
-        expected_s0_productions: usize,
         expected_states: usize,
+        state_production_cnt_assertions: HashMap<usize, usize>,
     }
 
     impl<'a> GrammarTestCase<'a> {
@@ -1186,13 +1192,18 @@ mod tests {
             self
         }
 
-        fn expected_s0_productions(mut self, state_cnt: usize) -> Self {
-            self.expected_s0_productions = state_cnt;
+        fn with_expected_states_cnt(mut self, state_cnt: usize) -> Self {
+            self.expected_states = state_cnt;
             self
         }
 
-        fn with_expected_states_cnt(mut self, state_cnt: usize) -> Self {
-            self.expected_states = state_cnt;
+        fn with_expected_state_production_assertion(
+            mut self,
+            state: usize,
+            expected_productions: usize,
+        ) -> Self {
+            self.state_production_cnt_assertions
+                .insert(state, expected_productions);
             self
         }
     }
@@ -1214,13 +1225,6 @@ mod tests {
             let initial_item_set = initial_item_set(&grammar_table);
 
             assert_eq!(initial_item_set.len(), 1);
-            // initial item set
-            let s0 = closure(&grammar_table, initial_item_set);
-            assert_eq!(s0.len(), self.expected_s0_productions, "{}", {
-                let mut collection = ItemCollection::default();
-                collection.insert(s0.clone());
-                collection.human_readable_format(&grammar_table)
-            });
 
             let collection = build_canonical_collection(&grammar_table);
             assert_eq!(
@@ -1229,6 +1233,14 @@ mod tests {
                 "{}",
                 collection.human_readable_format(&grammar_table)
             );
+
+            for (state_id, expected_productions) in self.state_production_cnt_assertions.iter() {
+                let maybe_item_set = collection.item_sets.get(*state_id);
+                assert!(maybe_item_set.is_some());
+
+                let item_set = maybe_item_set.unwrap();
+                assert_eq!(item_set.len(), *expected_productions);
+            }
         }
     }
 
@@ -1251,7 +1263,8 @@ mod tests {
             .with_expected_first_set_pair("<Expression>", 6)
             .with_expected_first_set_pair("<Primary>", 6)
             .with_expected_first_set_pair("<Constant>", 3)
-            .expected_s0_productions(9)
+            .with_expected_state_production_assertion(0, 9)
+            .with_expected_state_production_assertion(15, 9)
             .with_expected_states_cnt(22);
 
         let test_case_2 = GrammarTestCase::default()
@@ -1267,11 +1280,47 @@ mod tests {
             .with_expected_first_set_pair("<*>", 2)
             .with_expected_first_set_pair("<E>", 2)
             .with_expected_first_set_pair("<B>", 2)
-            .expected_s0_productions(16)
+            .with_expected_state_production_assertion(0, 16)
             .with_expected_states_cnt(9);
 
         for test_case in [test_case_1, test_case_2] {
             test_case.test()
         }
+    }
+
+    #[test]
+    fn should_correctly_generate_closure_sets_for_recursive_grammar_two() {
+        let grammar = "
+<Expression> ::= <Primary>
+<Primary> ::= Token::Identifier  
+<Primary> ::= <Constant>
+<Primary> ::= Token::StringLiteral
+<Primary> ::= Token::LeftParen <Expression> Token::RightParen
+<Constant> ::= Token::IntegerConstant
+<Constant> ::= Token::CharacterConstant
+<Constant> ::= Token::FloatingConstant
+";
+
+        let grammar_table = load_grammar(&grammar).unwrap();
+
+        let initial_item_set = initial_item_set(&grammar_table);
+
+        assert_eq!(initial_item_set.len(), 1);
+        // initial item set
+        let s0 = closure(&grammar_table, initial_item_set);
+        assert_eq!(s0.len(), 9, "{}", {
+            let mut collection = ItemCollection::default();
+            collection.insert(s0.clone());
+            collection.human_readable_format(&grammar_table)
+        });
+
+        let collection = build_canonical_collection(&grammar_table);
+
+        assert_eq!(
+            collection.states(),
+            22,
+            "{}",
+            collection.human_readable_format(&grammar_table)
+        );
     }
 }
