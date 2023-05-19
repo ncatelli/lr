@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::grammar::*;
 
+mod ordered_set;
+
 /// Markers for the type of error encountered in table generation.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TableGenErrorKind {
@@ -320,14 +322,16 @@ impl<'a> ItemRef<'a> {
 }
 
 /// ItemSet contains an ordered list of item references.
-#[derive(Default, Hash, Debug, Clone, Eq)]
+#[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
 struct ItemSet<'a> {
-    items: Vec<ItemRef<'a>>,
+    items: ordered_set::OrderedSet<ItemRef<'a>>,
 }
 
 impl<'a> ItemSet<'a> {
     fn new(items: Vec<ItemRef<'a>>) -> Self {
-        Self { items }
+        Self {
+            items: items.into_iter().collect(),
+        }
     }
 
     fn is_empty(&self) -> bool {
@@ -342,6 +346,7 @@ impl<'a> ItemSet<'a> {
 
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
         self.items
+            .as_ref()
             .iter()
             .map(|item_ref| {
                 let production_ref = item_ref.production;
@@ -379,15 +384,6 @@ impl<'a> ItemSet<'a> {
                 format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
             })
             .collect::<String>()
-    }
-}
-
-impl<'a> PartialEq for ItemSet<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        let lhs = self.items.iter().collect::<HashSet<_>>();
-        let rhs = other.items.iter().collect::<HashSet<_>>();
-
-        lhs == rhs
     }
 }
 
@@ -464,8 +460,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
     // DEVNOTE: this should probably be converted over to sets to save a clone.
-    let mut set = i.items.to_vec();
-    let mut in_set = set.iter().cloned().collect::<HashSet<_>>();
+    let mut set = i.items;
 
     let mut changed = true;
     while changed {
@@ -500,9 +495,8 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                         .map(|lookahead| ItemRef::new(production, 0, *lookahead));
 
                     for new in new_item {
-                        let new_item_inserted = in_set.insert(new.clone());
+                        let new_item_inserted = set.insert(new.clone());
                         if new_item_inserted {
-                            set.push(new);
                             changed = true;
                         }
                     }
@@ -527,7 +521,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 /// ```
 fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> ItemSet<'a> {
     // reverse the initial set so it can be popped.
-    let symbols_after_dot = i.items.iter().filter(|item_ref| {
+    let symbols_after_dot = i.items.as_ref().iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
 
         symbol_after_dot == Some(&x)
@@ -546,7 +540,7 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> I
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct ItemCollection<'a> {
     /// Stores a mapping of each child set spawned from the item set.
-    item_sets: Vec<ItemSet<'a>>,
+    item_sets: ordered_set::OrderedSet<ItemSet<'a>>,
 }
 
 impl<'a> ItemCollection<'a> {
@@ -556,30 +550,25 @@ impl<'a> ItemCollection<'a> {
 
     /// Returns a boolean signifying a value is already in the set.
     fn contains(&self, new_set: &ItemSet<'a>) -> bool {
-        self.item_sets.iter().any(|i| i == new_set)
+        self.item_sets.contains(new_set)
     }
 
     /// inserts a value into the collection, returning `true` if the set does
     /// not contain the value.
     fn insert(&mut self, new_set: ItemSet<'a>) -> bool {
-        let already_present = self.contains(&new_set);
-        if !already_present {
-            self.item_sets.push(new_set);
-        }
-
-        // if it's not already present, then a value has been inserted.
-        !already_present
+        self.item_sets.insert(new_set)
     }
 
     /// Returns the set id of a given set if it exists within the collection.
     fn id_from_set(&self, set: &ItemSet<'a>) -> Option<usize> {
-        self.item_sets.iter().position(|s| s == set)
+        self.item_sets.position(set)
     }
 
     /// Prints a human readable representation of a given collection.
     #[allow(unused)]
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
         self.item_sets
+            .as_ref()
             .iter()
             .enumerate()
             .map(|(id, i)| format!("\nS{}:\n{}", id, &i.human_readable_format(grammar_table)))
@@ -612,6 +601,8 @@ impl<'a> IntoIterator for ItemCollection<'a> {
 ///     k ← k + 1
 /// ```
 fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
+    use ordered_set::OrderedSet;
+
     let mut collection = ItemCollection::default();
 
     let initial_item_set = initial_item_set(grammar_table);
@@ -619,18 +610,17 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
 
     let mut changing = collection.insert(s0);
 
-    // DEVNOTE: this should probably be converted over to sets to save a clone.
-    let mut new_states = vec![];
-    let mut in_new_states = HashSet::new();
+    let mut new_states = OrderedSet::default();
     let mut new_sets_idx = 0_usize;
 
     while changing {
         changing = false;
 
-        for parent_state in collection.item_sets[new_sets_idx..].iter() {
+        for parent_state in collection.item_sets.as_ref()[new_sets_idx..].iter() {
             let symbols_after_dot = {
                 let mut symbol_after_dot = parent_state
                     .items
+                    .as_ref()
                     .iter()
                     .filter_map(|item| item.symbol_after_dot().copied())
                     .collect::<Vec<_>>();
@@ -643,11 +633,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
                 if !collection.contains(&new_state) {
-                    let is_unique_new_state = in_new_states.insert(new_state.clone());
-                    // only push the new state if it's unique.
-                    if is_unique_new_state {
-                        new_states.push(new_state);
-                    }
+                    new_states.insert(new_state.clone());
                 }
             }
         }
@@ -662,8 +648,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             changing = collection.insert(new_state);
         }
         // reset the new states
-        new_states = vec![];
-        in_new_states.clear();
+        new_states = OrderedSet::default();
     }
 
     collection
@@ -882,8 +867,8 @@ fn build_table<'a>(
             grammar_table.terminals().count()
         ];
 
-    for (x, sx) in canonical_collection.item_sets.iter().enumerate() {
-        let items = &sx.items;
+    for (x, sx) in canonical_collection.item_sets.as_ref().iter().enumerate() {
+        let items = sx.items.as_ref();
 
         for i in items {
             let symbol_after_dot = i.symbol_after_dot().copied();
@@ -957,8 +942,9 @@ fn build_table<'a>(
             // find the first set that contains all elements of sk.
             let k = canonical_collection
                 .item_sets
+                .as_ref()
                 .iter()
-                .position(|sx| sk.items.starts_with(&sx.items));
+                .position(|sx| sk.items.as_ref().starts_with(&sx.items.as_ref()));
 
             if let Some(k) = k {
                 goto_table[n.as_usize()][x] = Goto::State(k);
@@ -1121,6 +1107,7 @@ mod tests {
         let mut symbols_after_dot = {
             let mut symbol_after_dot = s0
                 .items
+                .as_ref()
                 .iter()
                 .filter_map(|item| item.symbol_after_dot().copied())
                 .collect::<Vec<_>>();
@@ -1159,6 +1146,7 @@ mod tests {
         let expected_productions_per_state = [10, 1, 2, 4, 3, 10, 9, 1, 2];
         let state_productions_assertion_tuples = collection
             .item_sets
+            .as_ref()
             .iter()
             .map(|state| state.len())
             .enumerate()
@@ -1235,7 +1223,7 @@ mod tests {
             );
 
             for (state_id, expected_productions) in self.state_production_cnt_assertions.iter() {
-                let maybe_item_set = collection.item_sets.get(*state_id);
+                let maybe_item_set = collection.item_sets.as_ref().get(*state_id);
                 assert!(maybe_item_set.is_some());
 
                 let item_set = maybe_item_set.unwrap();
