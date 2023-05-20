@@ -8,13 +8,6 @@ pub(crate) struct OrderedSet<T: Hash> {
 }
 
 impl<T: Hash> OrderedSet<T> {
-    /// Instantiate a new ordered set.
-    #[must_use]
-    #[allow(unused)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Returns a boolean signifying if the set is empty.
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty()
