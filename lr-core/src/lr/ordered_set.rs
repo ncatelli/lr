@@ -8,10 +8,21 @@ pub(crate) struct OrderedSet<T: Hash> {
 }
 
 impl<T: Hash> OrderedSet<T> {
+    /// Instantiate a new ordered set.
     #[must_use]
     #[allow(unused)]
-    pub fn new(elems: Vec<T>) -> Self {
-        elems.into_iter().collect()
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a boolean signifying if the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.elems.is_empty()
+    }
+
+    /// Returns the number of elements in the set.
+    pub fn len(&self) -> usize {
+        self.elems.len()
     }
 
     /// Insert an element into a set, returning `true` if the item was not
@@ -34,6 +45,8 @@ impl<T: Hash> OrderedSet<T> {
         }
     }
 
+    /// Returns the position of a given element is a member the set, otherwise
+    /// `None` is returned.
     pub fn position(&self, elem: &T) -> Option<usize> {
         let mut hasher = DefaultHasher::default();
         elem.hash(&mut hasher);
@@ -42,20 +55,9 @@ impl<T: Hash> OrderedSet<T> {
         self.elem_idx.get(&elem_hash).copied()
     }
 
+    /// Returns a boolean signifying if a given element is a member of the set.
     pub fn contains(&self, elem: &T) -> bool {
-        let mut hasher = DefaultHasher::default();
-        elem.hash(&mut hasher);
-        let elem_hash = hasher.finish();
-
-        self.elem_idx.contains_key(&elem_hash)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.elems.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.elems.len()
+        self.position(elem).is_some()
     }
 }
 
