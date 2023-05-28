@@ -52,6 +52,10 @@ impl<T: Hash> OrderedSet<T> {
     pub fn contains(&self, elem: &T) -> bool {
         self.position(elem).is_some()
     }
+
+    pub fn to_vec(self) -> Vec<T> {
+        self.elems
+    }
 }
 
 impl<T: Hash> AsRef<[T]> for OrderedSet<T> {
@@ -99,6 +103,12 @@ impl<T: Hash> FromIterator<T> for OrderedSet<T> {
 impl<T: Hash> Hash for OrderedSet<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.elems.hash(state);
+    }
+}
+
+impl<T: Hash> From<OrderedSet<T>> for Vec<T> {
+    fn from(value: OrderedSet<T>) -> Self {
+        value.to_vec()
     }
 }
 
