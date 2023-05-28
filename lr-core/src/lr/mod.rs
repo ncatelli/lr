@@ -452,12 +452,16 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
     let mut set = i.items;
+    let mut next_iteration = set.clone();
 
     let mut changed = true;
     while changed {
         changed = false;
 
-        for item in set.clone() {
+        let current_iteration = next_iteration.clone();
+        next_iteration.clear();
+
+        for item in current_iteration {
             let lookahead = item.lookahead;
             let beta = item.beta();
             let symbol_after_dot_position = item.symbol_after_dot();
@@ -488,6 +492,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                     for new in new_item {
                         let new_item_inserted = set.insert(new.clone());
                         if new_item_inserted {
+                            next_iteration.insert(new);
                             changed = true;
                         }
                     }

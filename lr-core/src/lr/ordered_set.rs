@@ -38,6 +38,12 @@ impl<T: Hash> OrderedSet<T> {
         }
     }
 
+    /// Clears all elements from the ordered set.
+    pub fn clear(&mut self) {
+        self.elem_idx.clear();
+        self.elems.clear();
+    }
+
     /// Returns the position of a given element is a member the set, otherwise
     /// `None` is returned.
     pub fn position(&self, elem: &T) -> Option<usize> {
