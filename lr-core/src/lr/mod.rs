@@ -395,26 +395,19 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
 }
 
 fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
-    let mut in_firsts = HashSet::new();
-    let mut firsts = vec![];
+    let mut firsts = ordered_set::OrderedSet::default();
 
     for set in beta_sets {
         let first_symbol_in_beta = set.first();
 
         match first_symbol_in_beta {
             Some(SymbolRef::Terminal(term_ref)) => {
-                let first_added_to_set = in_firsts.insert(*term_ref);
-                if first_added_to_set {
-                    firsts.push(*term_ref)
-                }
+                firsts.insert(*term_ref);
             }
             Some(SymbolRef::NonTerminal(nt_ref)) => {
                 if let Some(nt_firsts) = first_symbol_sets.sets.get(nt_ref) {
                     for &term_ref in nt_firsts {
-                        let first_added_to_set = in_firsts.insert(term_ref);
-                        if first_added_to_set {
-                            firsts.push(term_ref)
-                        }
+                        firsts.insert(term_ref);
                     }
                 };
             }
@@ -422,7 +415,7 @@ fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<Te
         };
     }
 
-    firsts
+    firsts.into()
 }
 
 fn follow(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
@@ -1283,9 +1276,58 @@ mod tests {
     #[test]
     #[ignore = "broken"]
     fn should_correctly_generate_closure_sets_for_recursive_grammar_two() {
+        /*
         GrammarTestCase::default()
             .with_grammar(
                 "
+                <Expression> ::= <Assignment>
+                <Assignment> ::= <Conditional>
+                <Conditional> ::= <LogicalOr>
+                <LogicalOr> ::= <LogicalAnd>
+                <LogicalAnd> ::= <InclusiveOr>
+                <InclusiveOr> ::= <ExclusiveOr>
+                <ExclusiveOr> ::= <And>
+                <And> ::= <Equality>
+                <Equality> ::= <Relational>
+                <Relational> ::= <Shift>
+                <Shift> ::= <Additive>
+                <Additive> ::= <Multiplicative>
+                <Multiplicative> ::= <Cast>
+                <Cast> ::= <Unary>
+                <Unary> ::= <Postfix>
+                <Unary> ::= Token::PlusPlus <Unary>
+                <Unary> ::= Token::MinusMinus <Unary>
+                <Unary> ::= <UnaryOperator> <Cast>
+                <UnaryOperator> ::= Token::Ampersand
+                <UnaryOperator> ::= Token::Star
+                <UnaryOperator> ::= Token::Plus
+                <UnaryOperator> ::= Token::Minus
+                <UnaryOperator> ::= Token::Tilde
+                <UnaryOperator> ::= Token::Bang
+                <UnaryOperator> ::= <Primary>
+                <Postfix> ::= <Postfix> Token::LeftBracket <Expression> Token::RightBracket
+                <Postfix> ::= <Postfix> Token::LeftParen Token::RightParen
+                <Postfix> ::= <Postfix> Token::LeftParen <ArgumentExpressionList> Token::RightParen
+                <Postfix> ::= <Postfix> Token::Dot Token::Identifier
+                <Postfix> ::= <Postfix> Token::Arrow Token::Identifier
+                <Postfix> ::= <Postfix> Token::PlusPlus
+                <Postfix> ::= <Postfix> Token::MinusMinus
+                <ArgumentExpressionList> ::= <Assigment>
+                <Primary> ::= Token::Identifier
+                <Primary> ::= <Constant>
+                <Primary> ::= Token::StringLiteral
+                <Primary> ::= Token::LeftParen <Expression> Token::RightParen
+                <Constant> ::= Token::IntegerConstant
+                <Constant> ::= Token::CharacterConstant
+                <Constant> ::= Token::FloatingConstant
+                ",
+            )
+            .with_expected_state_production_assertion(0, 166)
+            //.with_expected_states_cnt(140)
+            .test();
+        */
+
+        let grammar = "
                 <Expression> ::= <Assignment>
                 <Assignment> ::= <Conditional>
                 <Conditional> ::= <LogicalOr>
@@ -1326,10 +1368,15 @@ mod tests {
                 <Constant> ::= Token::IntegerConstant
                 <Constant> ::= Token::CharacterConstant
                 <Constant> ::= Token::FloatingConstant
-                ",
-            )
-            .with_expected_state_production_assertion(0, 166)
-            //.with_expected_states_cnt(140)
-            .test();
+                ";
+        let grammar_table = load_grammar(grammar).unwrap();
+
+        let initial_item_set = initial_item_set(&grammar_table);
+        let s0 = closure(&grammar_table, initial_item_set);
+        assert_eq!(s0.len(), 166, "{}", {
+            let mut collection = ItemCollection::default();
+            collection.insert(s0.clone());
+            collection.human_readable_format(&grammar_table)
+        });
     }
 }
