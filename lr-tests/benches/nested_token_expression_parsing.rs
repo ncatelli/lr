@@ -202,7 +202,7 @@ fn reduce_additive_binary(elems: &mut Vec<TermOrNonTerm>) -> Result<NonTerminal,
 
         Ok(NonTerminal::Additive(Box::new(inner)))
     } else {
-        let err_msg = format!("expected 3 elements at top of stack in production  reducer.",);
+        let err_msg = "expected 3 elements at top of stack in production  reducer.".to_string();
         Err(err_msg)
     }
 }
@@ -260,7 +260,7 @@ fn parse_basic_expression(c: &mut Criterion) {
         let expected = Ok(expected);
 
         b.iter(|| {
-            let parse_tree = NonTerminal::parse_input(black_box((&token_stream).iter().copied()));
+            let parse_tree = NonTerminal::parse_input(black_box(token_stream.iter().copied()));
             assert_eq!(&parse_tree, &expected);
         });
     });
@@ -287,7 +287,7 @@ fn parse_large_expression(c: &mut Criterion) {
 
     group.bench_function("without tokenization", |b| {
         b.iter(|| {
-            let parse_tree = NonTerminal::parse_input(black_box((&token_stream).iter().copied()));
+            let parse_tree = NonTerminal::parse_input(black_box(token_stream.iter().copied()));
             assert!(parse_tree.is_ok());
         });
     });
