@@ -1279,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn should_correctly_generate_closure_sets_for_recursive_grammar_two() {
+    fn should_correctly_generate_closure_sets_for_larger_grammar() {
         GrammarTestCase::default()
             .with_grammar(
                 "
