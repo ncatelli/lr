@@ -84,9 +84,7 @@ fn reduce_e_unary_non_term<'a>(
 
         Ok(NonTerminal::E(Box::new(non_term_kind)))
     } else {
-        Err(format!(
-            "expected non-terminal at top of stack in production 3 reducer.",
-        ))
+        Err("expected non-terminal at top of stack in production 3 reducer.".to_string())
     }
 }
 
@@ -125,9 +123,7 @@ fn reduce_goal<'a>(elems: &mut Vec<TermOrNonTerm<'a>>) -> Result<NonTerminal<'a>
     if let Some(TermOrNonTerm::NonTerminal(NonTerminal::E(e))) = elems.pop() {
         Ok(NonTerminal::E(e))
     } else {
-        Err(format!(
-            "expected non-terminal at top of stack in production 3 reducer.",
-        ))
+        Err("expected non-terminal at top of stack in production 3 reducer.".to_string())
     }
 }
 

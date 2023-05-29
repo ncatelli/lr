@@ -8,6 +8,13 @@ pub(crate) struct OrderedSet<T: Hash> {
 }
 
 impl<T: Hash> OrderedSet<T> {
+    pub fn new() -> Self {
+        Self {
+            elem_idx: Default::default(),
+            elems: Default::default(),
+        }
+    }
+
     /// Returns a boolean signifying if the set is empty.
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty()
@@ -28,14 +35,21 @@ impl<T: Hash> OrderedSet<T> {
 
         let slot = self.elems.len();
 
-        if !self.elem_idx.contains_key(&elem_hash) {
-            self.elem_idx.insert(elem_hash, slot);
+        if let std::collections::hash_map::Entry::Vacant(e) = self.elem_idx.entry(elem_hash) {
+            e.insert(slot);
             self.elems.push(elem);
 
             true
         } else {
             false
         }
+    }
+
+    /// Clears all elements from the ordered set.
+    #[allow(unused)]
+    pub fn clear(&mut self) {
+        self.elem_idx.clear();
+        self.elems.clear();
     }
 
     /// Returns the position of a given element is a member the set, otherwise
@@ -49,8 +63,13 @@ impl<T: Hash> OrderedSet<T> {
     }
 
     /// Returns a boolean signifying if a given element is a member of the set.
+    #[allow(unused)]
     pub fn contains(&self, elem: &T) -> bool {
         self.position(elem).is_some()
+    }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.elems
     }
 }
 
@@ -102,11 +121,14 @@ impl<T: Hash> Hash for OrderedSet<T> {
     }
 }
 
+impl<T: Hash> From<OrderedSet<T>> for Vec<T> {
+    fn from(value: OrderedSet<T>) -> Self {
+        value.into_vec()
+    }
+}
+
 impl<T: Hash> Default for OrderedSet<T> {
     fn default() -> Self {
-        Self {
-            elem_idx: Default::default(),
-            elems: Default::default(),
-        }
+        Self::new()
     }
 }
