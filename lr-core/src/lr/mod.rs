@@ -60,7 +60,7 @@ pub(crate) trait LrTableGenerator {
 /// A mapping of non-terminal symbols to their corresponding terminal symbols.
 #[derive(Debug, PartialEq)]
 struct SymbolRefSet {
-    sets: HashMap<NonTerminalRef, HashSet<TerminalRef>>,
+    sets: HashMap<NonTerminalRef, ordered_set::OrderedSet<TerminalRef>>,
 }
 
 impl SymbolRefSet {
@@ -69,7 +69,7 @@ impl SymbolRefSet {
             .as_ref()
             .iter()
             .fold(HashMap::new(), |mut acc, &non_terminal| {
-                acc.insert(non_terminal, HashSet::new());
+                acc.insert(non_terminal, ordered_set::OrderedSet::new());
                 acc
             });
         Self { sets }
@@ -108,6 +108,7 @@ impl SymbolRefSet {
             .iter()
             .map(|(nonterm, terms)| {
                 let rhs = terms
+                    .as_ref()
                     .iter()
                     .map(|term| terminals[term.as_usize()].to_string())
                     .collect::<Vec<_>>();
@@ -124,8 +125,8 @@ impl SymbolRefSet {
     }
 }
 
-impl AsRef<HashMap<NonTerminalRef, HashSet<TerminalRef>>> for SymbolRefSet {
-    fn as_ref(&self) -> &HashMap<NonTerminalRef, HashSet<TerminalRef>> {
+impl AsRef<HashMap<NonTerminalRef, ordered_set::OrderedSet<TerminalRef>>> for SymbolRefSet {
+    fn as_ref(&self) -> &HashMap<NonTerminalRef, ordered_set::OrderedSet<TerminalRef>> {
         &self.sets
     }
 }
@@ -266,6 +267,8 @@ fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<NonTermin
     nullable_nonterminal_productions
 }
 
+type BetaSet = [SymbolRef];
+
 #[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ItemRef<'a> {
     production: &'a ProductionRef,
@@ -312,7 +315,7 @@ impl<'a> ItemRef<'a> {
         self.production.rhs.get(dot_position)
     }
 
-    fn beta(&self) -> &[SymbolRef] {
+    fn beta(&self) -> &BetaSet {
         if self.is_completed() {
             &self.production.rhs[self.dot_position..]
         } else {
@@ -401,20 +404,26 @@ fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<Te
         let first_symbol_in_beta = set.first();
 
         match first_symbol_in_beta {
+            // set is epsilon thus continue.
+            None => {}
             Some(SymbolRef::Terminal(term_ref)) => {
                 firsts.insert(*term_ref);
+                // early exit
+                return firsts.into();
             }
             Some(SymbolRef::NonTerminal(nt_ref)) => {
                 if let Some(nt_firsts) = first_symbol_sets.sets.get(nt_ref) {
-                    for &term_ref in nt_firsts {
+                    for &term_ref in nt_firsts.as_ref() {
                         firsts.insert(term_ref);
                     }
+                    // early exit
+                    return firsts.into();
                 };
             }
-            None => {}
         };
     }
 
+    // this should only be reached if all first sets are nullable.
     firsts.into()
 }
 
@@ -435,10 +444,10 @@ fn follow(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<T
 /// ```ignore
 /// Closure(I)
 /// repeat
-///     for (each item [ A -> ?.B?, a ] in I )
-///         for (each production B -> ? in G’)
-///           for (each terminal b in FIRST(?a))
-///             add [ B -> .? , b ] to set I;
+///     for (each item [ A -> β1.Bβ2, a ] in I )
+///         for (each production B -> β3 in G’)
+///           for (each terminal b in FIRST(β2, a))
+///             add [ B -> .β3 , b ] to set I;
 /// until no more items are added to I;
 /// return I;
 /// ```
@@ -452,16 +461,12 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
     let mut set = i.items;
-    let mut next_iteration = set.clone();
 
     let mut changed = true;
     while changed {
         changed = false;
 
-        let current_iteration = next_iteration.clone();
-        next_iteration.clear();
-
-        for item in current_iteration {
+        for item in set.clone() {
             let lookahead = item.lookahead;
             let beta = item.beta();
             let symbol_after_dot_position = item.symbol_after_dot();
@@ -472,7 +477,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                 _ => None,
             };
 
-            if let Some(non_terminal_ref) = maybe_next_symbol_after_dot_is_non_terminal {
+            if let Some(next_nonterminal_after_dot) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
                     follow(&first_symbolref_set, &[beta, &lookahead_set])
@@ -482,7 +487,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 
                 let matching_productions = grammar_table
                     .productions()
-                    .filter(|production| production.lhs == non_terminal_ref);
+                    .filter(|production| production.lhs == next_nonterminal_after_dot);
 
                 for production in matching_productions {
                     let new_item = follow_set
@@ -492,7 +497,6 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                     for new in new_item {
                         let new_item_inserted = set.insert(new.clone());
                         if new_item_inserted {
-                            next_iteration.insert(new);
                             changed = true;
                         }
                     }
@@ -516,7 +520,6 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 /// return Closure(J);    /* apply closure to the set */
 /// ```
 fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> ItemSet<'a> {
-    // reverse the initial set so it can be popped.
     let symbols_after_dot = i.items.as_ref().iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
 
@@ -542,11 +545,6 @@ struct ItemCollection<'a> {
 impl<'a> ItemCollection<'a> {
     fn states(&self) -> usize {
         self.item_sets.len()
-    }
-
-    /// Returns a boolean signifying a value is already in the set.
-    fn contains(&self, new_set: &ItemSet<'a>) -> bool {
-        self.item_sets.contains(new_set)
     }
 
     /// inserts a value into the collection, returning `true` if the set does
@@ -604,13 +602,13 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
     let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
 
-    let mut changing = collection.insert(s0);
+    let mut changed = collection.insert(s0);
 
     let mut new_states = OrderedSet::default();
     let mut new_sets_idx = 0_usize;
 
-    while changing {
-        changing = false;
+    while changed {
+        changed = false;
 
         for parent_state in collection.item_sets.as_ref()[new_sets_idx..].iter() {
             let symbols_after_dot = {
@@ -628,9 +626,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
-                if !collection.contains(&new_state) {
-                    new_states.insert(new_state.clone());
-                }
+                new_states.insert(new_state.clone());
             }
         }
 
@@ -641,8 +637,12 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
         for new_state in new_states {
             // if there are new states to insert, mark the collection as
             // changing.
-            changing = collection.insert(new_state);
+            let new_state_inserted = collection.insert(new_state);
+            if new_state_inserted {
+                changed = true;
+            }
         }
+
         // reset the new states
         new_states = OrderedSet::default();
     }
@@ -1279,9 +1279,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "broken"]
     fn should_correctly_generate_closure_sets_for_recursive_grammar_two() {
-        /*
         GrammarTestCase::default()
             .with_grammar(
                 "
@@ -1309,7 +1307,7 @@ mod tests {
                 <UnaryOperator> ::= Token::Minus
                 <UnaryOperator> ::= Token::Tilde
                 <UnaryOperator> ::= Token::Bang
-                <UnaryOperator> ::= <Primary>
+                <Postfix> ::= <Primary>
                 <Postfix> ::= <Postfix> Token::LeftBracket <Expression> Token::RightBracket
                 <Postfix> ::= <Postfix> Token::LeftParen Token::RightParen
                 <Postfix> ::= <Postfix> Token::LeftParen <ArgumentExpressionList> Token::RightParen
@@ -1317,7 +1315,7 @@ mod tests {
                 <Postfix> ::= <Postfix> Token::Arrow Token::Identifier
                 <Postfix> ::= <Postfix> Token::PlusPlus
                 <Postfix> ::= <Postfix> Token::MinusMinus
-                <ArgumentExpressionList> ::= <Assigment>
+                <ArgumentExpressionList> ::= <Assignment>
                 <Primary> ::= Token::Identifier
                 <Primary> ::= <Constant>
                 <Primary> ::= Token::StringLiteral
@@ -1327,61 +1325,8 @@ mod tests {
                 <Constant> ::= Token::FloatingConstant
                 ",
             )
-            .with_expected_state_production_assertion(0, 166)
-            //.with_expected_states_cnt(140)
+            .with_expected_state_production_assertion(0, 208)
+            .with_expected_states_cnt(141)
             .test();
-        */
-
-        let grammar = "
-                <Expression> ::= <Assignment>
-                <Assignment> ::= <Conditional>
-                <Conditional> ::= <LogicalOr>
-                <LogicalOr> ::= <LogicalAnd>
-                <LogicalAnd> ::= <InclusiveOr>
-                <InclusiveOr> ::= <ExclusiveOr>
-                <ExclusiveOr> ::= <And>
-                <And> ::= <Equality>
-                <Equality> ::= <Relational>
-                <Relational> ::= <Shift>
-                <Shift> ::= <Additive>
-                <Additive> ::= <Multiplicative>
-                <Multiplicative> ::= <Cast>
-                <Cast> ::= <Unary>
-                <Unary> ::= <Postfix>
-                <Unary> ::= Token::PlusPlus <Unary>
-                <Unary> ::= Token::MinusMinus <Unary>
-                <Unary> ::= <UnaryOperator> <Cast>
-                <UnaryOperator> ::= Token::Ampersand
-                <UnaryOperator> ::= Token::Star
-                <UnaryOperator> ::= Token::Plus
-                <UnaryOperator> ::= Token::Minus
-                <UnaryOperator> ::= Token::Tilde
-                <UnaryOperator> ::= Token::Bang
-                <UnaryOperator> ::= <Primary>
-                <Postfix> ::= <Postfix> Token::LeftBracket <Expression> Token::RightBracket
-                <Postfix> ::= <Postfix> Token::LeftParen Token::RightParen
-                <Postfix> ::= <Postfix> Token::LeftParen <ArgumentExpressionList> Token::RightParen
-                <Postfix> ::= <Postfix> Token::Dot Token::Identifier 
-                <Postfix> ::= <Postfix> Token::Arrow Token::Identifier
-                <Postfix> ::= <Postfix> Token::PlusPlus
-                <Postfix> ::= <Postfix> Token::MinusMinus
-                <ArgumentExpressionList> ::= <Assigment>
-                <Primary> ::= Token::Identifier  
-                <Primary> ::= <Constant>
-                <Primary> ::= Token::StringLiteral
-                <Primary> ::= Token::LeftParen <Expression> Token::RightParen
-                <Constant> ::= Token::IntegerConstant
-                <Constant> ::= Token::CharacterConstant
-                <Constant> ::= Token::FloatingConstant
-                ";
-        let grammar_table = load_grammar(grammar).unwrap();
-
-        let initial_item_set = initial_item_set(&grammar_table);
-        let s0 = closure(&grammar_table, initial_item_set);
-        assert_eq!(s0.len(), 166, "{}", {
-            let mut collection = ItemCollection::default();
-            collection.insert(s0.clone());
-            collection.human_readable_format(&grammar_table)
-        });
     }
 }

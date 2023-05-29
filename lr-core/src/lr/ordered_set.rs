@@ -8,6 +8,13 @@ pub(crate) struct OrderedSet<T: Hash> {
 }
 
 impl<T: Hash> OrderedSet<T> {
+    pub fn new() -> Self {
+        Self {
+            elem_idx: Default::default(),
+            elems: Default::default(),
+        }
+    }
+
     /// Returns a boolean signifying if the set is empty.
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty()
@@ -39,6 +46,7 @@ impl<T: Hash> OrderedSet<T> {
     }
 
     /// Clears all elements from the ordered set.
+    #[allow(unused)]
     pub fn clear(&mut self) {
         self.elem_idx.clear();
         self.elems.clear();
@@ -55,6 +63,7 @@ impl<T: Hash> OrderedSet<T> {
     }
 
     /// Returns a boolean signifying if a given element is a member of the set.
+    #[allow(unused)]
     pub fn contains(&self, elem: &T) -> bool {
         self.position(elem).is_some()
     }
@@ -120,9 +129,6 @@ impl<T: Hash> From<OrderedSet<T>> for Vec<T> {
 
 impl<T: Hash> Default for OrderedSet<T> {
     fn default() -> Self {
-        Self {
-            elem_idx: Default::default(),
-            elems: Default::default(),
-        }
+        Self::new()
     }
 }
