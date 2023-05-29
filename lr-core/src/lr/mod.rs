@@ -940,7 +940,7 @@ fn build_table<'a>(
                 .item_sets
                 .as_ref()
                 .iter()
-                .position(|sx| sk.items.as_ref().starts_with(&sx.items.as_ref()));
+                .position(|sx| sk.items.as_ref().starts_with(sx.items.as_ref()));
 
             if let Some(k) = k {
                 goto_table[n.as_usize()][x] = Goto::State(k);
@@ -1036,7 +1036,7 @@ mod tests {
                     .filter_map(|t| terminals.get(t.as_usize()).cloned())
                     .collect::<HashSet<_>>();
 
-                (nonterminals[nt.as_usize()].clone(), terms)
+                (nonterminals[nt.as_usize()], terms)
             })
             .collect::<Vec<_>>();
         got.sort_by(|(a, _), (b, _)| a.as_ref().cmp(b.as_ref()));
@@ -1194,7 +1194,7 @@ mod tests {
 
     impl<'a> GrammarTestCase<'a> {
         fn test(&self) {
-            let grammar_table = load_grammar(&self.grammar_table).unwrap();
+            let grammar_table = load_grammar(self.grammar_table).unwrap();
             let nullable_terms = find_nullable_nonterminals(&grammar_table);
             let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
 

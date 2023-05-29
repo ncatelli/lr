@@ -35,8 +35,8 @@ impl<T: Hash> OrderedSet<T> {
 
         let slot = self.elems.len();
 
-        if !self.elem_idx.contains_key(&elem_hash) {
-            self.elem_idx.insert(elem_hash, slot);
+        if let std::collections::hash_map::Entry::Vacant(e) = self.elem_idx.entry(elem_hash) {
+            e.insert(slot);
             self.elems.push(elem);
 
             true
@@ -68,7 +68,7 @@ impl<T: Hash> OrderedSet<T> {
         self.position(elem).is_some()
     }
 
-    pub fn to_vec(self) -> Vec<T> {
+    pub fn into_vec(self) -> Vec<T> {
         self.elems
     }
 }
@@ -123,7 +123,7 @@ impl<T: Hash> Hash for OrderedSet<T> {
 
 impl<T: Hash> From<OrderedSet<T>> for Vec<T> {
     fn from(value: OrderedSet<T>) -> Self {
-        value.to_vec()
+        value.into_vec()
     }
 }
 
