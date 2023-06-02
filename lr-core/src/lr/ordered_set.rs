@@ -15,6 +15,14 @@ impl<T: Hash> OrderedSet<T> {
         }
     }
 
+    #[allow(unused)]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            elem_idx: HashMap::with_capacity(capacity),
+            elems: Vec::with_capacity(capacity),
+        }
+    }
+
     /// Returns a boolean signifying if the set is empty.
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty()
