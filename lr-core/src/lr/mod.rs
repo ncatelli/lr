@@ -390,6 +390,18 @@ impl<'a> ItemSet<'a> {
     }
 }
 
+impl<'a> From<ordered_set::OrderedSet<ItemRef<'a>>> for ItemSet<'a> {
+    fn from(value: ordered_set::OrderedSet<ItemRef<'a>>) -> Self {
+        Self { items: value }
+    }
+}
+
+impl<'a> From<Vec<ItemRef<'a>>> for ItemSet<'a> {
+    fn from(value: Vec<ItemRef<'a>>) -> Self {
+        Self::new(value)
+    }
+}
+
 impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
     fn from_iter<T: IntoIterator<Item = ItemRef<'a>>>(iter: T) -> Self {
         let set = iter.into_iter().collect::<Vec<_>>();
@@ -505,8 +517,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         }
     }
 
-    let new_set = set.into_vec();
-    ItemSet::new(new_set)
+    ItemSet::from(set)
 }
 
 /// Generates the goto of an `ItemSet` using the following algorithm.
