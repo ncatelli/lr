@@ -505,8 +505,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
         }
     }
 
-    let new_set = set.into_iter().collect::<Vec<_>>();
-
+    let new_set = set.into_vec();
     ItemSet::new(new_set)
 }
 
@@ -626,7 +625,7 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
-                new_states.insert(new_state.clone());
+                new_states.insert(new_state);
             }
         }
 
