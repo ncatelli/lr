@@ -2,8 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::grammar::*;
 
-mod ordered_set;
-
 /// Markers for the type of error encountered in table generation.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TableGenErrorKind {
@@ -60,7 +58,7 @@ pub(crate) trait LrTableGenerator {
 /// A mapping of non-terminal symbols to their corresponding terminal symbols.
 #[derive(Debug, PartialEq)]
 struct SymbolRefSet {
-    sets: HashMap<NonTerminalRef, ordered_set::OrderedSet<TerminalRef>>,
+    sets: HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>,
 }
 
 impl SymbolRefSet {
@@ -69,7 +67,7 @@ impl SymbolRefSet {
             .as_ref()
             .iter()
             .fold(HashMap::new(), |mut acc, &non_terminal| {
-                acc.insert(non_terminal, ordered_set::OrderedSet::new());
+                acc.insert(non_terminal, crate::ordered_set::OrderedSet::new());
                 acc
             });
         Self { sets }
@@ -125,8 +123,8 @@ impl SymbolRefSet {
     }
 }
 
-impl AsRef<HashMap<NonTerminalRef, ordered_set::OrderedSet<TerminalRef>>> for SymbolRefSet {
-    fn as_ref(&self) -> &HashMap<NonTerminalRef, ordered_set::OrderedSet<TerminalRef>> {
+impl AsRef<HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>> for SymbolRefSet {
+    fn as_ref(&self) -> &HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>> {
         &self.sets
     }
 }
@@ -330,7 +328,7 @@ impl<'a> ItemRef<'a> {
 /// ItemSet contains an ordered list of item references.
 #[derive(Default, Hash, Debug, Clone, PartialEq, Eq)]
 struct ItemSet<'a> {
-    items: ordered_set::OrderedSet<ItemRef<'a>>,
+    items: crate::ordered_set::OrderedSet<ItemRef<'a>>,
 }
 
 impl<'a> ItemSet<'a> {
@@ -393,8 +391,8 @@ impl<'a> ItemSet<'a> {
     }
 }
 
-impl<'a> From<ordered_set::OrderedSet<ItemRef<'a>>> for ItemSet<'a> {
-    fn from(value: ordered_set::OrderedSet<ItemRef<'a>>) -> Self {
+impl<'a> From<crate::ordered_set::OrderedSet<ItemRef<'a>>> for ItemSet<'a> {
+    fn from(value: crate::ordered_set::OrderedSet<ItemRef<'a>>) -> Self {
         Self { items: value }
     }
 }
@@ -413,7 +411,7 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
 }
 
 fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
-    let mut firsts = ordered_set::OrderedSet::default();
+    let mut firsts = crate::ordered_set::OrderedSet::default();
 
     for set in beta_sets {
         let first_symbol_in_beta = set.first();
@@ -558,7 +556,7 @@ fn goto<'a>(
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct ItemCollection<'a> {
     /// Stores a mapping of each child set spawned from the item set.
-    item_sets: ordered_set::OrderedSet<ItemSet<'a>>,
+    item_sets: crate::ordered_set::OrderedSet<ItemSet<'a>>,
 }
 
 impl<'a> ItemCollection<'a> {
@@ -617,7 +615,7 @@ fn build_canonical_collection<'a>(
     grammar_table: &'a GrammarTable,
     first_symbolref_set: &'a SymbolRefSet,
 ) -> ItemCollection<'a> {
-    use ordered_set::OrderedSet;
+    use crate::ordered_set::OrderedSet;
 
     let mut collection = ItemCollection::default();
 
