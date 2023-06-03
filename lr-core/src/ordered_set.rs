@@ -2,7 +2,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
-pub(crate) struct OrderedSet<T: Hash> {
+pub struct OrderedSet<T: Hash> {
     elem_idx: HashMap<u64, usize>,
     elems: Vec<T>,
 }
@@ -12,6 +12,14 @@ impl<T: Hash> OrderedSet<T> {
         Self {
             elem_idx: Default::default(),
             elems: Default::default(),
+        }
+    }
+
+    #[allow(unused)]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            elem_idx: HashMap::with_capacity(capacity),
+            elems: Vec::with_capacity(capacity),
         }
     }
 
@@ -68,8 +76,14 @@ impl<T: Hash> OrderedSet<T> {
         self.position(elem).is_some()
     }
 
+    /// Returns the [OrderedSet<T>] as a [Vec<T>] preserving the order.
     pub fn into_vec(self) -> Vec<T> {
         self.elems
+    }
+
+    /// Generates an immutable iterator over the ordered values of the set.
+    pub fn iter(&self) -> std::slice::Iter<T> {
+        self.elems.iter()
     }
 }
 
