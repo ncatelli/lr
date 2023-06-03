@@ -136,9 +136,12 @@ pub(crate) struct Lr1;
 
 impl LrTableGenerator for Lr1 {
     fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError> {
-        let collection = build_canonical_collection(grammar_table);
+        let nullable_nonterms = find_nullable_nonterminals(grammar_table);
+        let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
-        build_table(grammar_table, &collection)
+        let collection = build_canonical_collection(grammar_table, &first_symbolref_set);
+
+        build_table(grammar_table, &first_symbolref_set, &collection)
     }
 }
 
@@ -463,14 +466,15 @@ fn follow(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<T
 /// until no more items are added to I;
 /// return I;
 /// ```
-fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
+fn closure<'a>(
+    grammar_table: &'a GrammarTable,
+    first_symbolref_set: &'a SymbolRefSet,
+    i: ItemSet<'a>,
+) -> ItemSet<'a> {
     // if the itemset is empty exit early
     if i.is_empty() {
         return i;
     }
-
-    let nullable_nonterms = find_nullable_nonterminals(grammar_table);
-    let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
 
     let mut set = i.items;
 
@@ -492,7 +496,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
             if let Some(next_nonterminal_after_dot) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
-                    follow(&first_symbolref_set, &[beta, &lookahead_set])
+                    follow(first_symbolref_set, &[beta, &lookahead_set])
                         .into_iter()
                         .collect::<Vec<_>>()
                 };
@@ -529,7 +533,12 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 ///     Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
 /// return Closure(J);    /* apply closure to the set */
 /// ```
-fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> ItemSet<'a> {
+fn goto<'a>(
+    grammar_table: &'a GrammarTable,
+    first_symbolref_set: &'a SymbolRefSet,
+    i: &ItemSet<'a>,
+    x: SymbolRef,
+) -> ItemSet<'a> {
     let symbols_after_dot = i.items.as_ref().iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
 
@@ -541,7 +550,7 @@ fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> I
         .filter_map(|item| item.advance_dot_position())
         .collect();
 
-    closure(grammar_table, j)
+    closure(grammar_table, first_symbolref_set, j)
 }
 
 /// Contains the canonical collection of `ItemSet` states ordered by their
@@ -604,13 +613,16 @@ impl<'a> IntoIterator for ItemCollection<'a> {
 ///     S ← S ∪ sk
 ///     k ← k + 1
 /// ```
-fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
+fn build_canonical_collection<'a>(
+    grammar_table: &'a GrammarTable,
+    first_symbolref_set: &'a SymbolRefSet,
+) -> ItemCollection<'a> {
     use ordered_set::OrderedSet;
 
     let mut collection = ItemCollection::default();
 
     let initial_item_set = initial_item_set(grammar_table);
-    let s0 = closure(grammar_table, initial_item_set);
+    let s0 = closure(grammar_table, first_symbolref_set, initial_item_set);
 
     let mut changed = collection.insert(s0);
 
@@ -634,7 +646,12 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection {
             };
 
             for symbol_after_dot in symbols_after_dot {
-                let new_state = goto(grammar_table, parent_state, symbol_after_dot);
+                let new_state = goto(
+                    grammar_table,
+                    first_symbolref_set,
+                    parent_state,
+                    symbol_after_dot,
+                );
 
                 new_states.insert(new_state);
             }
@@ -857,6 +874,7 @@ impl LrTable {
 /// ```
 fn build_table<'a>(
     grammar_table: &'a GrammarTable,
+    first_symbolref_set: &'a SymbolRefSet,
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable, TableGenError> {
     let terminals = grammar_table.terminals().collect::<Vec<_>>();
@@ -894,7 +912,12 @@ fn build_table<'a>(
 
             // shift is symbol is both a terminal and not the end of input.
             if let Some(SymbolRef::Terminal(a)) = symbol_after_dot {
-                let sk = goto(grammar_table, sx, SymbolRef::Terminal(a));
+                let sk = goto(
+                    grammar_table,
+                    first_symbolref_set,
+                    sx,
+                    SymbolRef::Terminal(a),
+                );
                 let k = canonical_collection.id_from_set(&sk);
 
                 if let Some(k) = k {
@@ -943,7 +966,12 @@ fn build_table<'a>(
             .skip(1)
             .flat_map(|s| grammar_table.non_terminal_mapping(&s));
         for n in nt {
-            let sk = goto(grammar_table, sx, SymbolRef::NonTerminal(n));
+            let sk = goto(
+                grammar_table,
+                first_symbolref_set,
+                sx,
+                SymbolRef::NonTerminal(n),
+            );
 
             // find the first set that contains all elements of sk.
             let k = canonical_collection
@@ -1081,9 +1109,11 @@ mod tests {
 
         let grammar_table = load_grammar(grammar);
         let grammar_table = grammar_table.unwrap();
+        let nullable_nonterms = find_nullable_nonterminals(&grammar_table);
+        let first_symbolref_set = build_first_set_ref(&grammar_table, &nullable_nonterms);
 
         let s0 = initial_item_set(&grammar_table);
-        let s0 = closure(&grammar_table, s0);
+        let s0 = closure(&grammar_table, &first_symbolref_set, s0);
         assert_eq!(s0.len(), 10, "{}", {
             let mut collection = ItemCollection::default();
             collection.insert(s0.clone());
@@ -1105,9 +1135,11 @@ mod tests {
     fn goto_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
         let grammar_table = load_grammar(grammar).unwrap();
+        let nullable_nonterms = find_nullable_nonterminals(&grammar_table);
+        let first_symbolref_set = build_first_set_ref(&grammar_table, &nullable_nonterms);
 
         let initial_item_set = initial_item_set(&grammar_table);
-        let s0 = closure(&grammar_table, initial_item_set);
+        let s0 = closure(&grammar_table, &first_symbolref_set, initial_item_set);
         assert_eq!(s0.len(), 10);
 
         let mut symbols_after_dot = {
@@ -1123,7 +1155,7 @@ mod tests {
         };
 
         let symbol_after_dot = symbols_after_dot.next().unwrap();
-        let s0 = goto(&grammar_table, &s0, symbol_after_dot);
+        let s0 = goto(&grammar_table, &first_symbolref_set, &s0, symbol_after_dot);
         assert_eq!(s0.len(), 1,);
         assert_eq!(
             "<*> -> <E> . [<$>]\n",
@@ -1140,8 +1172,10 @@ mod tests {
 <T> ::= <F>
 <F> ::= n";
         let grammar_table = load_grammar(grammar).unwrap();
+        let nullable_nonterms = find_nullable_nonterminals(&grammar_table);
+        let first_symbolref_set = build_first_set_ref(&grammar_table, &nullable_nonterms);
 
-        let collection = build_canonical_collection(&grammar_table);
+        let collection = build_canonical_collection(&grammar_table, &first_symbolref_set);
         assert_eq!(
             collection.states(),
             9,
@@ -1220,7 +1254,7 @@ mod tests {
 
             assert_eq!(initial_item_set.len(), 1);
 
-            let collection = build_canonical_collection(&grammar_table);
+            let collection = build_canonical_collection(&grammar_table, &first_sets);
             if let Some(expected_states) = self.expected_states {
                 assert_eq!(
                     collection.states(),
