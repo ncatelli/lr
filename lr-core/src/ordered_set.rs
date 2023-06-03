@@ -1,24 +1,64 @@
 use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
+
+/// A hasher that takes and returns 8 bytes as a u64.
+///
+/// # Caller Asserts
+///
+/// This returns the first 8 bytes from the array. Largely expecting the value
+/// to be a pre-generated hash.
+struct NoOpU64Hasher(u64);
+
+impl Hasher for NoOpU64Hasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        const MAX_BYTES: usize = (u64::BITS / 8) as usize;
+
+        let len = MAX_BYTES.min(bytes.len());
+
+        let mut buf = [0u8; MAX_BYTES];
+        buf[..len].copy_from_slice(&bytes[..len]);
+
+        self.0 = u64::from_ne_bytes(buf);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NoOpHashBuilder;
+
+impl BuildHasher for NoOpHashBuilder {
+    type Hasher = NoOpU64Hasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        NoOpU64Hasher(0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct OrderedSet<T: Hash> {
-    elem_idx: HashMap<u64, usize>,
+    elem_idx: HashMap<u64, usize, NoOpHashBuilder>,
     elems: Vec<T>,
 }
 
 impl<T: Hash> OrderedSet<T> {
     pub fn new() -> Self {
+        let elem_idx = HashMap::with_hasher(NoOpHashBuilder);
+
         Self {
-            elem_idx: Default::default(),
+            elem_idx,
             elems: Default::default(),
         }
     }
 
     #[allow(unused)]
     pub fn with_capacity(capacity: usize) -> Self {
+        let elem_idx = HashMap::with_capacity_and_hasher(capacity, NoOpHashBuilder);
+
         Self {
-            elem_idx: HashMap::with_capacity(capacity),
+            elem_idx,
             elems: Vec::with_capacity(capacity),
         }
     }
@@ -144,5 +184,24 @@ impl<T: Hash> From<OrderedSet<T>> for Vec<T> {
 impl<T: Hash> Default for OrderedSet<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn should_generate_identity_for_all_inputs_to_no_op_hasher() {
+        for i in 0..256 {
+            let mut no_op_hasher = NoOpHashBuilder.build_hasher();
+            let mut default_hasher = DefaultHasher::default();
+
+            i.hash(&mut default_hasher);
+            let expected_hash = default_hasher.finish();
+
+            expected_hash.hash(&mut no_op_hasher);
+
+            assert_eq!(no_op_hasher.finish(), expected_hash);
+        }
     }
 }
