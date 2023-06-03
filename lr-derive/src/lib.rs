@@ -373,6 +373,7 @@ fn generate_grammar_table_from_annotated_enum(
 
     let eof_terminal = format!("{}::Eof", terminal_ident);
     let _ = grammar_table.declare_eof_terminal(eof_terminal);
+    grammar_table.finalize();
 
     Ok(ReducibleGrammarTable::new(grammar_table, reducers))
 }

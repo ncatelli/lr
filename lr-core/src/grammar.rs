@@ -455,6 +455,17 @@ impl GrammarTable {
         self.productions.iter()
     }
 
+    /// generates the first set from the grammar, finalizing it.
+    pub fn finalize(&mut self) {
+        let non_terminals = self.non_terminals().collect::<Vec<_>>();
+        let terminals = self.terminals().collect::<Vec<_>>();
+
+        let nullable_terms =
+            find_nullable_nonterminals(&self.productions, &non_terminals, &terminals);
+        let first_sets = build_first_set_ref(self, &nullable_terms);
+        self.first_sets = first_sets;
+    }
+
     pub fn first_set(&self) -> &FirstSymbolSet {
         &self.first_sets
     }
@@ -818,6 +829,7 @@ fn find_nullable_nonterminals<'a>(
 
     nullable_nonterminal_productions
 }
+
 fn build_first_set_ref<'a>(
     grammar_table: &'a GrammarTable,
     nullable_nonterminals: &HashSet<NonTerminal<'a>>,
@@ -931,14 +943,7 @@ pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoad
     grammar_table.productions[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
-
-    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
-    let terminals = grammar_table.terminals().collect::<Vec<_>>();
-
-    let nullable_terms =
-        find_nullable_nonterminals(&grammar_table.productions, &non_terminals, &terminals);
-    let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
-    grammar_table.first_sets = first_sets;
+    grammar_table.finalize();
 
     Ok(grammar_table)
 }
