@@ -79,6 +79,10 @@ impl<T: Hash> OrderedSet<T> {
     pub fn into_vec(self) -> Vec<T> {
         self.elems
     }
+
+    pub fn iter(&self) -> std::slice::Iter<T> {
+        self.elems.iter()
+    }
 }
 
 impl<T: Hash> AsRef<[T]> for OrderedSet<T> {

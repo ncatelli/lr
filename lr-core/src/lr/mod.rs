@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::grammar::*;
 
 /// Markers for the type of error encountered in table generation.
@@ -60,12 +58,9 @@ pub(crate) struct Lr1;
 
 impl LrTableGenerator for Lr1 {
     fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError> {
-        let nullable_nonterms = find_nullable_nonterminals(grammar_table);
-        let first_symbolref_set = build_first_set_ref(grammar_table, &nullable_nonterms);
+        let collection = build_canonical_collection(grammar_table);
 
-        let collection = build_canonical_collection(grammar_table, &first_symbolref_set);
-
-        build_table(grammar_table, &first_symbolref_set, &collection)
+        build_table(grammar_table, &collection)
     }
 }
 
@@ -77,121 +72,6 @@ fn initial_item_set(grammar_table: &GrammarTable) -> ItemSet {
         .take(1)
         .map(|first_production| ItemRef::new(first_production, 0, eof_terminal_ref))
         .collect::<ItemSet>()
-}
-
-fn build_first_set_ref<'a>(
-    grammar_table: &'a GrammarTable,
-    nullable_nonterminals: &HashSet<NonTerminal<'a>>,
-) -> SymbolRefSet {
-    let nullable_nonterminal_refs = nullable_nonterminals
-        .iter()
-        .filter_map(|nt| grammar_table.non_terminal_mapping(nt))
-        .collect::<Vec<_>>();
-
-    let non_terminals = grammar_table
-        .non_terminals()
-        .filter_map(|nt| grammar_table.non_terminal_mapping(&nt))
-        .collect::<Vec<_>>();
-    let mut first_set = SymbolRefSet::new(&non_terminals);
-
-    // builtin guarantee
-    let epsilon_ref = grammar_table.terminal_mapping(&BuiltinTerminals::Epsilon.into());
-
-    // map nullable nonterminals to epsilon
-    if let Some(epsilon_ref) = epsilon_ref {
-        for nullable_nonterm_ref in nullable_nonterminal_refs {
-            first_set.insert(nullable_nonterm_ref, epsilon_ref);
-        }
-    // there should never be a case where there are nonterminal refs and no epison symbol.
-    } else if !nullable_nonterminal_refs.is_empty() {
-        unreachable!()
-    }
-
-    // set the initial terminal for each production
-    let initial_terminals_of_productions =
-        grammar_table.productions().filter_map(|production_ref| {
-            let lhs_idx = production_ref.lhs;
-            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
-
-            if let Some(SymbolRef::Terminal(first_terminal)) = production_ref.rhs.get(0) {
-                // if the the first terminal in the pattern isn't epsilon, add it.
-                Some((lhs_non_terminal, first_terminal))
-            } else {
-                None
-            }
-        });
-
-    // map initial terminals in each proudction to their non-terminal
-    for (non_terminal, first_terminal) in initial_terminals_of_productions {
-        first_set.insert(non_terminal, *first_terminal);
-    }
-
-    let mut changed = true;
-
-    while changed {
-        changed = false;
-        // set the initial terminal for each production
-        for production_ref in grammar_table.productions() {
-            let lhs_idx = production_ref.lhs;
-            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
-
-            if let Some(SymbolRef::NonTerminal(idx)) = production_ref.rhs.get(0) {
-                // get all terminals from the first non_terminal
-                let first_rhs_non_terminal = non_terminals[idx.as_usize()];
-                if first_set.union_of_sets(lhs_non_terminal, &first_rhs_non_terminal) {
-                    changed = true;
-                }
-            }
-        }
-    }
-
-    first_set
-}
-
-fn find_nullable_nonterminals(grammar_table: &GrammarTable) -> HashSet<NonTerminal> {
-    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
-    let terminals = grammar_table.terminals().collect::<Vec<_>>();
-    let mut nullable_nonterminal_productions = HashSet::new();
-
-    let mut done = false;
-    while !done {
-        // assume done unless a change happens.
-        done = true;
-        for production in grammar_table.productions() {
-            let lhs_id = production.lhs;
-            let lhs = non_terminals[lhs_id.as_usize()];
-
-            // validate that the production isn't already nullable
-            if !nullable_nonterminal_productions.contains(&lhs) {
-                let first_rhs_is_terminal = production.rhs.get(0).and_then(|sotr| match sotr {
-                    SymbolRef::NonTerminal(_) => None,
-                    SymbolRef::Terminal(idx) => terminals.get(idx.as_usize()),
-                });
-                if first_rhs_is_terminal
-                    == Some(&Terminal::new(BuiltinTerminals::Epsilon.as_terminal()))
-                {
-                    nullable_nonterminal_productions.insert(lhs);
-                    done = false
-                } else {
-                    // check that the production doesn't contain a terminal or is not nullable.
-                    let all_nullable = production.rhs.iter().any(|sotr| match sotr {
-                        SymbolRef::NonTerminal(idx) => {
-                            let non_terminal = non_terminals.get(idx.as_usize()).unwrap();
-                            nullable_nonterminal_productions.contains(non_terminal)
-                        }
-                        SymbolRef::Terminal(_) => false,
-                    });
-
-                    if all_nullable {
-                        nullable_nonterminal_productions.insert(lhs);
-                        done = false
-                    }
-                }
-            }
-        }
-    }
-
-    nullable_nonterminal_productions
 }
 
 type BetaSet = [SymbolRef];
@@ -390,11 +270,7 @@ fn follow(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<T
 /// until no more items are added to I;
 /// return I;
 /// ```
-fn closure<'a>(
-    grammar_table: &'a GrammarTable,
-    first_symbolref_set: &'a SymbolRefSet,
-    i: ItemSet<'a>,
-) -> ItemSet<'a> {
+fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     // if the itemset is empty exit early
     if i.is_empty() {
         return i;
@@ -420,7 +296,7 @@ fn closure<'a>(
             if let Some(next_nonterminal_after_dot) = maybe_next_symbol_after_dot_is_non_terminal {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
-                    follow(first_symbolref_set, &[beta, &lookahead_set])
+                    follow(grammar_table.first_set(), &[beta, &lookahead_set])
                         .into_iter()
                         .collect::<Vec<_>>()
                 };
@@ -457,12 +333,7 @@ fn closure<'a>(
 ///     Add item A -> ?X.?, a ] to set J;   /* move the dot one step */
 /// return Closure(J);    /* apply closure to the set */
 /// ```
-fn goto<'a>(
-    grammar_table: &'a GrammarTable,
-    first_symbolref_set: &'a SymbolRefSet,
-    i: &ItemSet<'a>,
-    x: SymbolRef,
-) -> ItemSet<'a> {
+fn goto<'a>(grammar_table: &'a GrammarTable, i: &ItemSet<'a>, x: SymbolRef) -> ItemSet<'a> {
     let symbols_after_dot = i.items.as_ref().iter().filter(|item_ref| {
         let symbol_after_dot = item_ref.symbol_after_dot();
 
@@ -474,7 +345,7 @@ fn goto<'a>(
         .filter_map(|item| item.advance_dot_position())
         .collect();
 
-    closure(grammar_table, first_symbolref_set, j)
+    closure(grammar_table, j)
 }
 
 /// Contains the canonical collection of `ItemSet` states ordered by their
@@ -537,16 +408,13 @@ impl<'a> IntoIterator for ItemCollection<'a> {
 ///     S ← S ∪ sk
 ///     k ← k + 1
 /// ```
-fn build_canonical_collection<'a>(
-    grammar_table: &'a GrammarTable,
-    first_symbolref_set: &'a SymbolRefSet,
-) -> ItemCollection<'a> {
+fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection<'_> {
     use crate::ordered_set::OrderedSet;
 
     let mut collection = ItemCollection::default();
 
     let initial_item_set = initial_item_set(grammar_table);
-    let s0 = closure(grammar_table, first_symbolref_set, initial_item_set);
+    let s0 = closure(grammar_table, initial_item_set);
 
     let mut changed = collection.insert(s0);
 
@@ -570,12 +438,7 @@ fn build_canonical_collection<'a>(
             };
 
             for symbol_after_dot in symbols_after_dot {
-                let new_state = goto(
-                    grammar_table,
-                    first_symbolref_set,
-                    parent_state,
-                    symbol_after_dot,
-                );
+                let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
                 new_states.insert(new_state);
             }
@@ -798,7 +661,6 @@ impl LrTable {
 /// ```
 fn build_table<'a>(
     grammar_table: &'a GrammarTable,
-    first_symbolref_set: &'a SymbolRefSet,
     canonical_collection: &ItemCollection<'a>,
 ) -> Result<LrTable, TableGenError> {
     let terminals = grammar_table.terminals().collect::<Vec<_>>();
@@ -836,12 +698,7 @@ fn build_table<'a>(
 
             // shift is symbol is both a terminal and not the end of input.
             if let Some(SymbolRef::Terminal(a)) = symbol_after_dot {
-                let sk = goto(
-                    grammar_table,
-                    first_symbolref_set,
-                    sx,
-                    SymbolRef::Terminal(a),
-                );
+                let sk = goto(grammar_table, sx, SymbolRef::Terminal(a));
                 let k = canonical_collection.id_from_set(&sk);
 
                 if let Some(k) = k {
@@ -890,12 +747,7 @@ fn build_table<'a>(
             .skip(1)
             .flat_map(|s| grammar_table.non_terminal_mapping(&s));
         for n in nt {
-            let sk = goto(
-                grammar_table,
-                first_symbolref_set,
-                sx,
-                SymbolRef::NonTerminal(n),
-            );
+            let sk = goto(grammar_table, sx, SymbolRef::NonTerminal(n));
 
             // find the first set that contains all elements of sk.
             let k = canonical_collection
@@ -921,7 +773,7 @@ fn build_table<'a>(
 mod tests {
     use super::*;
 
-    use std::collections::hash_map::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     const TEST_GRAMMAR: &str = "
 <E> ::= <T> - <E>
@@ -930,49 +782,6 @@ mod tests {
 <T> ::= <F>
 <F> ::= n
 ";
-
-    #[test]
-    fn should_parse_set_with_nullable_nonterminal() {
-        let grammar = "
-<expr> ::= <expr> + <term>
-<term> ::= <term> * <factor>
-<expr> ::= <term>
-<term> ::= <factor>
-<factor> ::= 0
-";
-        let grammar_with_epsilon = "
- <term> ::= 0\n
-<factor> ::= <epsilon>\n
-        ";
-
-        let grammar_table = load_grammar(grammar);
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
-
-        // assert there are no nullable nonterminals terms.
-        let no_nullable_nonterminals = find_nullable_nonterminals(&grammar_table)
-            .into_iter()
-            .next()
-            .is_none();
-
-        assert!(no_nullable_nonterminals);
-
-        // check a grammar containing an nullable non_terminal.
-        let grammar_table = load_grammar(grammar_with_epsilon);
-        assert!(grammar_table.is_ok());
-
-        // safe to unwrap with assertion.
-        let grammar_table = grammar_table.unwrap();
-        // assert there are no nullable nonterminals terms.
-
-        let nullable_nonterminals = find_nullable_nonterminals(&grammar_table)
-            .into_iter()
-            .collect::<Vec<_>>();
-
-        assert_eq!(nullable_nonterminals, vec![NonTerminal::new("<factor>")])
-    }
 
     #[test]
     fn first_set_returns_expected_values() {
@@ -988,14 +797,12 @@ mod tests {
         let terminals = grammar_table.terminals().collect::<Vec<_>>();
         let nonterminals = grammar_table.non_terminals().collect::<Vec<_>>();
 
-        let nullable_terms = find_nullable_nonterminals(&grammar_table);
-        let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
-
-        let mut got = first_sets
-            .into_iter()
+        let mut got = grammar_table
+            .first_set()
+            .iter()
             .map(|(nt, terms)| {
                 let terms = terms
-                    .into_iter()
+                    .iter()
                     .filter_map(|t| terminals.get(t.as_usize()).cloned())
                     .collect::<HashSet<_>>();
 
@@ -1034,11 +841,9 @@ mod tests {
 
         let grammar_table = load_grammar(grammar);
         let grammar_table = grammar_table.unwrap();
-        let nullable_nonterms = find_nullable_nonterminals(&grammar_table);
-        let first_symbolref_set = build_first_set_ref(&grammar_table, &nullable_nonterms);
 
         let s0 = initial_item_set(&grammar_table);
-        let s0 = closure(&grammar_table, &first_symbolref_set, s0);
+        let s0 = closure(&grammar_table, s0);
         assert_eq!(s0.len(), 10, "{}", {
             let mut collection = ItemCollection::default();
             collection.insert(s0.clone());
@@ -1060,11 +865,9 @@ mod tests {
     fn goto_generates_expected_value_for_itemset() {
         let grammar = TEST_GRAMMAR;
         let grammar_table = load_grammar(grammar).unwrap();
-        let nullable_nonterms = find_nullable_nonterminals(&grammar_table);
-        let first_symbolref_set = build_first_set_ref(&grammar_table, &nullable_nonterms);
 
         let initial_item_set = initial_item_set(&grammar_table);
-        let s0 = closure(&grammar_table, &first_symbolref_set, initial_item_set);
+        let s0 = closure(&grammar_table, initial_item_set);
         assert_eq!(s0.len(), 10);
 
         let mut symbols_after_dot = {
@@ -1080,7 +883,7 @@ mod tests {
         };
 
         let symbol_after_dot = symbols_after_dot.next().unwrap();
-        let s0 = goto(&grammar_table, &first_symbolref_set, &s0, symbol_after_dot);
+        let s0 = goto(&grammar_table, &s0, symbol_after_dot);
         assert_eq!(s0.len(), 1,);
         assert_eq!(
             "<*> -> <E> . [<$>]\n",
@@ -1097,10 +900,8 @@ mod tests {
 <T> ::= <F>
 <F> ::= n";
         let grammar_table = load_grammar(grammar).unwrap();
-        let nullable_nonterms = find_nullable_nonterminals(&grammar_table);
-        let first_symbolref_set = build_first_set_ref(&grammar_table, &nullable_nonterms);
 
-        let collection = build_canonical_collection(&grammar_table, &first_symbolref_set);
+        let collection = build_canonical_collection(&grammar_table);
         assert_eq!(
             collection.states(),
             9,
@@ -1164,8 +965,7 @@ mod tests {
     impl<'a> GrammarTestCase<'a> {
         fn test(&self) {
             let grammar_table = load_grammar(self.grammar_table).unwrap();
-            let nullable_terms = find_nullable_nonterminals(&grammar_table);
-            let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
+            let first_sets = grammar_table.first_set();
 
             for (&nt, &expected_terms) in self.expected_first_set_pairings.iter() {
                 let key = grammar_table
@@ -1179,7 +979,7 @@ mod tests {
 
             assert_eq!(initial_item_set.len(), 1);
 
-            let collection = build_canonical_collection(&grammar_table, &first_sets);
+            let collection = build_canonical_collection(&grammar_table);
             if let Some(expected_states) = self.expected_states {
                 assert_eq!(
                     collection.states(),

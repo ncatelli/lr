@@ -1,4 +1,4 @@
-use std::collections::hash_map::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A predefined set of reserved non-terminals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,7 +252,7 @@ impl<'a> std::fmt::Display for Terminal<'a> {
 }
 
 /// A mapping of non-terminal symbols to their corresponding terminal symbols.
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct SymbolRefSet {
     sets: HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>,
 }
@@ -290,6 +290,13 @@ impl SymbolRefSet {
         });
 
         changed
+    }
+
+    pub fn iter(
+        &self,
+    ) -> std::collections::hash_map::Iter<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>
+    {
+        self.sets.iter()
     }
 
     #[allow(unused)]
@@ -346,6 +353,8 @@ pub struct GrammarTable {
     non_terminals: HashMap<String, usize>,
     terminals: HashMap<String, usize>,
     productions: Vec<ProductionRef>,
+
+    first_sets: SymbolRefSet,
 
     eof_terminal_ref: Option<TerminalRef>,
 }
@@ -440,6 +449,10 @@ impl GrammarTable {
     /// Returns an iterator over all productions in a given grammar.
     pub fn productions(&self) -> impl Iterator<Item = &ProductionRef> {
         self.productions.iter()
+    }
+
+    pub fn first_set(&self) -> &SymbolRefSet {
+        &self.first_sets
     }
 }
 
@@ -754,6 +767,122 @@ pub fn define_production_mut<S: AsRef<str>>(
     }
 }
 
+fn find_nullable_nonterminals<'a>(
+    productions: &'a [ProductionRef],
+    non_terminals: &'a [NonTerminal],
+    terminals: &'a [Terminal],
+) -> HashSet<NonTerminal<'a>> {
+    let mut nullable_nonterminal_productions = HashSet::new();
+
+    let mut done = false;
+    while !done {
+        // assume done unless a change happens.
+        done = true;
+        for production in productions {
+            let lhs_id = production.lhs;
+            let lhs = non_terminals[lhs_id.as_usize()];
+
+            // validate that the production isn't already nullable
+            if !nullable_nonterminal_productions.contains(&lhs) {
+                let first_rhs_is_terminal = production.rhs.get(0).and_then(|sotr| match sotr {
+                    SymbolRef::NonTerminal(_) => None,
+                    SymbolRef::Terminal(idx) => terminals.get(idx.as_usize()),
+                });
+                if first_rhs_is_terminal
+                    == Some(&Terminal::new(BuiltinTerminals::Epsilon.as_terminal()))
+                {
+                    nullable_nonterminal_productions.insert(lhs);
+                    done = false
+                } else {
+                    // check that the production doesn't contain a terminal or is not nullable.
+                    let all_nullable = production.rhs.iter().any(|sotr| match sotr {
+                        SymbolRef::NonTerminal(idx) => {
+                            let non_terminal = non_terminals.get(idx.as_usize()).unwrap();
+                            nullable_nonterminal_productions.contains(non_terminal)
+                        }
+                        SymbolRef::Terminal(_) => false,
+                    });
+
+                    if all_nullable {
+                        nullable_nonterminal_productions.insert(lhs);
+                        done = false
+                    }
+                }
+            }
+        }
+    }
+
+    nullable_nonterminal_productions
+}
+fn build_first_set_ref<'a>(
+    grammar_table: &'a GrammarTable,
+    nullable_nonterminals: &HashSet<NonTerminal<'a>>,
+) -> SymbolRefSet {
+    let nullable_nonterminal_refs = nullable_nonterminals
+        .iter()
+        .filter_map(|nt| grammar_table.non_terminal_mapping(nt))
+        .collect::<Vec<_>>();
+
+    let non_terminals = grammar_table
+        .non_terminals()
+        .filter_map(|nt| grammar_table.non_terminal_mapping(&nt))
+        .collect::<Vec<_>>();
+    let mut first_set = SymbolRefSet::new(&non_terminals);
+
+    // builtin guarantee
+    let epsilon_ref = grammar_table.terminal_mapping(&BuiltinTerminals::Epsilon.into());
+
+    // map nullable nonterminals to epsilon
+    if let Some(epsilon_ref) = epsilon_ref {
+        for nullable_nonterm_ref in nullable_nonterminal_refs {
+            first_set.insert(nullable_nonterm_ref, epsilon_ref);
+        }
+    // there should never be a case where there are nonterminal refs and no epison symbol.
+    } else if !nullable_nonterminal_refs.is_empty() {
+        unreachable!()
+    }
+
+    // set the initial terminal for each production
+    let initial_terminals_of_productions =
+        grammar_table.productions().filter_map(|production_ref| {
+            let lhs_idx = production_ref.lhs;
+            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
+
+            if let Some(SymbolRef::Terminal(first_terminal)) = production_ref.rhs.get(0) {
+                // if the the first terminal in the pattern isn't epsilon, add it.
+                Some((lhs_non_terminal, first_terminal))
+            } else {
+                None
+            }
+        });
+
+    // map initial terminals in each proudction to their non-terminal
+    for (non_terminal, first_terminal) in initial_terminals_of_productions {
+        first_set.insert(non_terminal, *first_terminal);
+    }
+
+    let mut changed = true;
+
+    while changed {
+        changed = false;
+        // set the initial terminal for each production
+        for production_ref in grammar_table.productions() {
+            let lhs_idx = production_ref.lhs;
+            let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
+
+            if let Some(SymbolRef::NonTerminal(idx)) = production_ref.rhs.get(0) {
+                // get all terminals from the first non_terminal
+                let first_rhs_non_terminal = non_terminals[idx.as_usize()];
+                if first_set.union_of_sets(lhs_non_terminal, &first_rhs_non_terminal) {
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    first_set
+}
+
 /// A function for loading a single text representation of a grammar in one pass.
 pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoadError> {
     let mut grammar_table =
@@ -798,6 +927,14 @@ pub fn load_grammar<S: AsRef<str>>(input: S) -> Result<GrammarTable, GrammarLoad
     grammar_table.productions[root_production.as_usize()]
         .rhs
         .push(first_non_root_production);
+
+    let non_terminals = grammar_table.non_terminals().collect::<Vec<_>>();
+    let terminals = grammar_table.terminals().collect::<Vec<_>>();
+
+    let nullable_terms =
+        find_nullable_nonterminals(&grammar_table.productions, &non_terminals, &terminals);
+    let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
+    grammar_table.first_sets = first_sets;
 
     Ok(grammar_table)
 }
