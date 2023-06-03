@@ -251,13 +251,13 @@ impl<'a> std::fmt::Display for Terminal<'a> {
     }
 }
 
-/// A mapping of non-terminal symbols to their corresponding terminal symbols.
+/// A mapping of non-terminal symbols to their corresponding first terminal symbols.
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct SymbolRefSet {
+pub struct FirstSymbolSet {
     sets: HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>,
 }
 
-impl SymbolRefSet {
+impl FirstSymbolSet {
     pub fn new<NT: AsRef<[NonTerminalRef]>>(non_terminals: NT) -> Self {
         let sets = non_terminals
             .as_ref()
@@ -292,6 +292,8 @@ impl SymbolRefSet {
         changed
     }
 
+    /// Returns an immutable iterator over the [TerminalRef] mappings for each
+    /// [NonTerminalRef].
     pub fn iter(
         &self,
     ) -> std::collections::hash_map::Iter<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>
@@ -299,7 +301,7 @@ impl SymbolRefSet {
         self.sets.iter()
     }
 
-    #[allow(unused)]
+    /// Returns a human friendly representation of the set.
     pub fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
         let terminals = grammar_table.terminals().collect::<Vec<_>>();
         let nonterminals = grammar_table.non_terminals().collect::<Vec<_>>();
@@ -326,13 +328,15 @@ impl SymbolRefSet {
     }
 }
 
-impl AsRef<HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>> for SymbolRefSet {
+impl AsRef<HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>>
+    for FirstSymbolSet
+{
     fn as_ref(&self) -> &HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>> {
         &self.sets
     }
 }
 
-impl IntoIterator for SymbolRefSet {
+impl IntoIterator for FirstSymbolSet {
     type Item = (NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>);
 
     type IntoIter = std::collections::hash_map::IntoIter<
@@ -354,7 +358,7 @@ pub struct GrammarTable {
     terminals: HashMap<String, usize>,
     productions: Vec<ProductionRef>,
 
-    first_sets: SymbolRefSet,
+    first_sets: FirstSymbolSet,
 
     eof_terminal_ref: Option<TerminalRef>,
 }
@@ -451,7 +455,7 @@ impl GrammarTable {
         self.productions.iter()
     }
 
-    pub fn first_set(&self) -> &SymbolRefSet {
+    pub fn first_set(&self) -> &FirstSymbolSet {
         &self.first_sets
     }
 }
@@ -817,7 +821,7 @@ fn find_nullable_nonterminals<'a>(
 fn build_first_set_ref<'a>(
     grammar_table: &'a GrammarTable,
     nullable_nonterminals: &HashSet<NonTerminal<'a>>,
-) -> SymbolRefSet {
+) -> FirstSymbolSet {
     let nullable_nonterminal_refs = nullable_nonterminals
         .iter()
         .filter_map(|nt| grammar_table.non_terminal_mapping(nt))
@@ -827,7 +831,7 @@ fn build_first_set_ref<'a>(
         .non_terminals()
         .filter_map(|nt| grammar_table.non_terminal_mapping(&nt))
         .collect::<Vec<_>>();
-    let mut first_set = SymbolRefSet::new(&non_terminals);
+    let mut first_set = FirstSymbolSet::new(&non_terminals);
 
     // builtin guarantee
     let epsilon_ref = grammar_table.terminal_mapping(&BuiltinTerminals::Epsilon.into());

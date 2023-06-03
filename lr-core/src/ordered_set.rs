@@ -76,10 +76,12 @@ impl<T: Hash> OrderedSet<T> {
         self.position(elem).is_some()
     }
 
+    /// Returns the [OrderedSet<T>] as a [Vec<T>] preserving the order.
     pub fn into_vec(self) -> Vec<T> {
         self.elems
     }
 
+    /// Generates an immutable iterator over the ordered values of the set.
     pub fn iter(&self) -> std::slice::Iter<T> {
         self.elems.iter()
     }

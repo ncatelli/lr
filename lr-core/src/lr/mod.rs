@@ -216,7 +216,7 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
     }
 }
 
-fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
+fn first(first_symbol_sets: &FirstSymbolSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
     let mut firsts = crate::ordered_set::OrderedSet::default();
 
     for set in beta_sets {
@@ -246,7 +246,7 @@ fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<Te
     firsts.into()
 }
 
-fn follow(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
+fn follow(first_symbol_sets: &FirstSymbolSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
     for set in beta_sets {
         let firsts = first(first_symbol_sets, &[set]);
         // break the loop if the first set returns.
