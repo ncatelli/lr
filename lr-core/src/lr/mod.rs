@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::grammar::*;
 
@@ -53,80 +53,6 @@ impl std::fmt::Display for TableGenError {
 /// Exposes a trait for generating an LR table from a grammar.
 pub(crate) trait LrTableGenerator {
     fn generate_table(grammar_table: &GrammarTable) -> Result<LrTable, TableGenError>;
-}
-
-/// A mapping of non-terminal symbols to their corresponding terminal symbols.
-#[derive(Debug, PartialEq)]
-struct SymbolRefSet {
-    sets: HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>,
-}
-
-impl SymbolRefSet {
-    fn new<NT: AsRef<[NonTerminalRef]>>(non_terminals: NT) -> Self {
-        let sets = non_terminals
-            .as_ref()
-            .iter()
-            .fold(HashMap::new(), |mut acc, &non_terminal| {
-                acc.insert(non_terminal, crate::ordered_set::OrderedSet::new());
-                acc
-            });
-        Self { sets }
-    }
-
-    /// Inserts a terminal into a non-terminals's set returning true if it already exists.
-    fn insert<T: Into<TerminalRef>>(&mut self, key: NonTerminalRef, terminal: T) -> bool {
-        self.sets
-            .get_mut(&key)
-            .map(|terminal_set| terminal_set.insert(terminal.into()))
-            .unwrap_or(false)
-    }
-
-    /// Sets the terminals for `lhs` to the union of `lhs` and `rhs`.
-    fn union_of_sets(&mut self, lhs: NonTerminalRef, rhs: &NonTerminalRef) -> bool {
-        let mut changed = false;
-
-        // get all terminals from the rhs non-terminal
-        let first_terminal_from_rhs_non_terminal = self.sets.get(rhs).cloned().unwrap_or_default();
-        self.sets.entry(lhs).and_modify(|terminal_set| {
-            for terminal in first_terminal_from_rhs_non_terminal {
-                changed = terminal_set.insert(terminal);
-            }
-        });
-
-        changed
-    }
-
-    #[allow(unused)]
-    fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
-        let terminals = grammar_table.terminals().collect::<Vec<_>>();
-        let nonterminals = grammar_table.non_terminals().collect::<Vec<_>>();
-
-        let lines = self
-            .sets
-            .iter()
-            .map(|(nonterm, terms)| {
-                let rhs = terms
-                    .as_ref()
-                    .iter()
-                    .map(|term| terminals[term.as_usize()].to_string())
-                    .collect::<Vec<_>>();
-
-                format!(
-                    "{}: {}",
-                    nonterminals[nonterm.as_usize()].as_ref(),
-                    rhs.join(", ")
-                )
-            })
-            .collect::<Vec<_>>();
-
-        lines.join("\n")
-    }
-}
-
-impl AsRef<HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>> for SymbolRefSet {
-    fn as_ref(&self) -> &HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>> {
-        &self.sets
-    }
 }
 
 /// A wrapper type for Lr1 Parser tables.
@@ -425,7 +351,7 @@ fn first(first_symbol_sets: &SymbolRefSet, beta_sets: &[&[SymbolRef]]) -> Vec<Te
                 return firsts.into();
             }
             Some(SymbolRef::NonTerminal(nt_ref)) => {
-                if let Some(nt_firsts) = first_symbol_sets.sets.get(nt_ref) {
+                if let Some(nt_firsts) = first_symbol_sets.as_ref().get(nt_ref) {
                     for &term_ref in nt_firsts.as_ref() {
                         firsts.insert(term_ref);
                     }
@@ -995,6 +921,8 @@ fn build_table<'a>(
 mod tests {
     use super::*;
 
+    use std::collections::hash_map::HashMap;
+
     const TEST_GRAMMAR: &str = "
 <E> ::= <T> - <E>
 <E> ::= <T>
@@ -1064,7 +992,6 @@ mod tests {
         let first_sets = build_first_set_ref(&grammar_table, &nullable_terms);
 
         let mut got = first_sets
-            .sets
             .into_iter()
             .map(|(nt, terms)| {
                 let terms = terms
@@ -1244,7 +1171,7 @@ mod tests {
                 let key = grammar_table
                     .non_terminal_mapping(&NonTerminal::from(nt))
                     .unwrap();
-                let first_set = first_sets.sets.get(&key).unwrap();
+                let first_set = first_sets.as_ref().get(&key).unwrap();
                 assert_eq!(first_set.len(), expected_terms);
             }
 

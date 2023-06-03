@@ -2,7 +2,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
-pub(crate) struct OrderedSet<T: Hash> {
+pub struct OrderedSet<T: Hash> {
     elem_idx: HashMap<u64, usize>,
     elems: Vec<T>,
 }

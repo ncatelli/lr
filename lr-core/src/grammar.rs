@@ -251,6 +251,93 @@ impl<'a> std::fmt::Display for Terminal<'a> {
     }
 }
 
+/// A mapping of non-terminal symbols to their corresponding terminal symbols.
+#[derive(Debug, PartialEq)]
+pub struct SymbolRefSet {
+    sets: HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>,
+}
+
+impl SymbolRefSet {
+    pub fn new<NT: AsRef<[NonTerminalRef]>>(non_terminals: NT) -> Self {
+        let sets = non_terminals
+            .as_ref()
+            .iter()
+            .fold(HashMap::new(), |mut acc, &non_terminal| {
+                acc.insert(non_terminal, crate::ordered_set::OrderedSet::new());
+                acc
+            });
+        Self { sets }
+    }
+
+    /// Inserts a terminal into a non-terminals's set returning true if it already exists.
+    pub fn insert<T: Into<TerminalRef>>(&mut self, key: NonTerminalRef, terminal: T) -> bool {
+        self.sets
+            .get_mut(&key)
+            .map(|terminal_set| terminal_set.insert(terminal.into()))
+            .unwrap_or(false)
+    }
+
+    /// Sets the terminals for `lhs` to the union of `lhs` and `rhs`.
+    pub fn union_of_sets(&mut self, lhs: NonTerminalRef, rhs: &NonTerminalRef) -> bool {
+        let mut changed = false;
+
+        // get all terminals from the rhs non-terminal
+        let first_terminal_from_rhs_non_terminal = self.sets.get(rhs).cloned().unwrap_or_default();
+        self.sets.entry(lhs).and_modify(|terminal_set| {
+            for terminal in first_terminal_from_rhs_non_terminal {
+                changed = terminal_set.insert(terminal);
+            }
+        });
+
+        changed
+    }
+
+    #[allow(unused)]
+    pub fn human_readable_format(&self, grammar_table: &GrammarTable) -> String {
+        let terminals = grammar_table.terminals().collect::<Vec<_>>();
+        let nonterminals = grammar_table.non_terminals().collect::<Vec<_>>();
+
+        let lines = self
+            .sets
+            .iter()
+            .map(|(nonterm, terms)| {
+                let rhs = terms
+                    .as_ref()
+                    .iter()
+                    .map(|term| terminals[term.as_usize()].to_string())
+                    .collect::<Vec<_>>();
+
+                format!(
+                    "{}: {}",
+                    nonterminals[nonterm.as_usize()].as_ref(),
+                    rhs.join(", ")
+                )
+            })
+            .collect::<Vec<_>>();
+
+        lines.join("\n")
+    }
+}
+
+impl AsRef<HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>>> for SymbolRefSet {
+    fn as_ref(&self) -> &HashMap<NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>> {
+        &self.sets
+    }
+}
+
+impl IntoIterator for SymbolRefSet {
+    type Item = (NonTerminalRef, crate::ordered_set::OrderedSet<TerminalRef>);
+
+    type IntoIter = std::collections::hash_map::IntoIter<
+        NonTerminalRef,
+        crate::ordered_set::OrderedSet<TerminalRef>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.sets.into_iter()
+    }
+}
+
 /// A representation of all symbols, and productions of a given grammar. This
 /// type functions as a source of truth for both human readable rendering and
 /// state machine generation.

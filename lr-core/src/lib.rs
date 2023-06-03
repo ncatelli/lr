@@ -1,6 +1,6 @@
 pub mod grammar;
 pub mod lr;
-pub(crate) mod ordered_set;
+pub mod ordered_set;
 pub mod prelude;
 
 /// Represents the kind of table that can be generated
