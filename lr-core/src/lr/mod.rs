@@ -1,4 +1,4 @@
-use crate::grammar::*;
+use crate::{grammar::*, ordered_set};
 
 /// Markers for the type of error encountered in table generation.
 #[derive(Debug, PartialEq, Eq)]
@@ -216,7 +216,10 @@ impl<'a> FromIterator<ItemRef<'a>> for ItemSet<'a> {
     }
 }
 
-fn first(first_symbol_sets: &FirstSymbolSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
+fn first(
+    first_symbol_sets: &FirstSymbolSet,
+    beta_sets: &[&[SymbolRef]],
+) -> ordered_set::OrderedSet<TerminalRef> {
     let mut firsts = crate::ordered_set::OrderedSet::default();
 
     for set in beta_sets {
@@ -228,7 +231,7 @@ fn first(first_symbol_sets: &FirstSymbolSet, beta_sets: &[&[SymbolRef]]) -> Vec<
             Some(SymbolRef::Terminal(term_ref)) => {
                 firsts.insert(*term_ref);
                 // early exit
-                return firsts.into();
+                return firsts;
             }
             Some(SymbolRef::NonTerminal(nt_ref)) => {
                 if let Some(nt_firsts) = first_symbol_sets.as_ref().get(nt_ref) {
@@ -236,26 +239,35 @@ fn first(first_symbol_sets: &FirstSymbolSet, beta_sets: &[&[SymbolRef]]) -> Vec<
                         firsts.insert(term_ref);
                     }
                     // early exit
-                    return firsts.into();
+                    return firsts;
                 };
             }
         };
     }
 
     // this should only be reached if all first sets are nullable.
-    firsts.into()
+    firsts
 }
 
-fn follow(first_symbol_sets: &FirstSymbolSet, beta_sets: &[&[SymbolRef]]) -> Vec<TerminalRef> {
-    for set in beta_sets {
-        let firsts = first(first_symbol_sets, &[set]);
-        // break the loop if the first set returns.
-        if !firsts.is_empty() {
-            return firsts;
-        }
-    }
-
-    vec![]
+fn follow(
+    first_symbol_sets: &FirstSymbolSet,
+    beta_sets: &[&[SymbolRef]],
+) -> ordered_set::OrderedSet<TerminalRef> {
+    beta_sets
+        .iter()
+        .filter_map(|set| {
+            let firsts = first(first_symbol_sets, &[set]);
+            // break the loop if the first set returns.
+            if !firsts.is_empty() {
+                Some(firsts)
+            } else {
+                None
+            }
+        })
+        // Return the first beta set (or lookahead) with values.
+        .next()
+        // or return an empty set.
+        .unwrap_or_default()
 }
 
 /// Generates the closure of a `ItemSet` using the following algorithm.
