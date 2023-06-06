@@ -430,11 +430,14 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection<'_
 
     collection.insert(s0);
 
-    let mut new_states = OrderedSet::default();
     let mut new_states_idx = 0_usize;
 
     while collection.states() != new_states_idx {
-        for parent_state in collection.item_sets.as_ref()[new_states_idx..].iter() {
+        let new_states_in_collection = collection.item_sets.as_ref()[new_states_idx..].to_vec();
+        // bump the offset to account for only new states.
+        new_states_idx = collection.states();
+
+        for parent_state in new_states_in_collection.iter() {
             let symbols_after_dot = parent_state
                 .items
                 .as_ref()
@@ -445,20 +448,9 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection<'_
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
-                new_states.insert(new_state);
+                let _ = collection.insert(new_state);
             }
         }
-
-        // bump the offset to account for only new states.
-        new_states_idx = collection.states();
-
-        // insert all new states
-        for new_state in new_states {
-            let _ = collection.insert(new_state);
-        }
-
-        // reset the new states
-        new_states = OrderedSet::default();
     }
 
     collection
