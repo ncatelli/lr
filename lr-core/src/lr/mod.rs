@@ -291,10 +291,15 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
     let mut set = i.items;
 
     let mut changed = true;
+    let mut last_modified_cnt = 0;
     while changed {
         changed = false;
 
-        for item in set.clone() {
+        // build a list of all new items and update the modified count.
+        let new_items_in_set = set.as_ref()[last_modified_cnt..].to_vec();
+        last_modified_cnt = new_items_in_set.len();
+
+        for item in new_items_in_set {
             let lookahead = item.lookahead;
             let beta = item.beta();
             let symbol_after_dot_position = item.symbol_after_dot();
