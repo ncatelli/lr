@@ -674,19 +674,6 @@ fn build_table<'a>(
 
         for i in items {
             let symbol_after_dot = i.symbol_after_dot().copied();
-            let lookahead_terminal_ref = &i.lookahead;
-            let lookahead_terminal = terminals
-                .get(lookahead_terminal_ref.as_usize())
-                .ok_or_else(|| {
-                    TableGenError::new(TableGenErrorKind::UnknownTerminal)
-                        .with_data(format!("{}", &i.lookahead))
-                })?;
-
-            let is_goal = Some(i.production.lhs)
-                == grammar_table
-                    .non_terminal_mapping(&NonTerminal::from(BuiltinNonTerminals::Goal));
-            let is_goal_acceptor =
-                is_goal && symbol_after_dot.is_none() && (*lookahead_terminal == eof_terminal);
 
             // shift is symbol is both a terminal and not the end of input.
             if let Some(SymbolRef::Terminal(a)) = symbol_after_dot {
@@ -699,7 +686,21 @@ fn build_table<'a>(
                 }
             }
 
+            let lookahead_terminal_ref = &i.lookahead;
+            let lookahead_terminal = terminals
+                .get(lookahead_terminal_ref.as_usize())
+                .ok_or_else(|| {
+                    TableGenError::new(TableGenErrorKind::UnknownTerminal)
+                        .with_data(format!("{}", &i.lookahead))
+                })?;
+
             // if it's the start action, accept
+            let is_goal = Some(i.production.lhs)
+                == grammar_table
+                    .non_terminal_mapping(&NonTerminal::from(BuiltinNonTerminals::Goal));
+            let is_goal_acceptor =
+                is_goal && symbol_after_dot.is_none() && (*lookahead_terminal == eof_terminal);
+
             if is_goal_acceptor {
                 let a = eof_terminal_ref;
 
