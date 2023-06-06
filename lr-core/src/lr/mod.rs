@@ -290,14 +290,14 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 
     let mut set = i.items;
 
-    let mut changed = true;
-    let mut last_modified_cnt = 0;
-    while changed {
-        changed = false;
-
+    // The offset into from which all sets after are new from the previous
+    // iteration.
+    let mut new_sets_idx = 0;
+    // While set is still changing.
+    while set.len() != new_sets_idx {
         // build a list of all new items and update the modified count.
-        let new_items_in_set = set.as_ref()[last_modified_cnt..].to_vec();
-        last_modified_cnt = new_items_in_set.len();
+        let new_items_in_set = set.as_ref()[new_sets_idx..].to_vec();
+        new_sets_idx = set.len();
 
         for item in new_items_in_set {
             let lookahead = item.lookahead;
@@ -326,10 +326,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                         .map(|lookahead| ItemRef::new(production, 0, *lookahead));
 
                     for new in new_item {
-                        let new_item_inserted = set.insert(new.clone());
-                        if new_item_inserted {
-                            changed = true;
-                        }
+                        let _ = set.insert(new.clone());
                     }
                 }
             }
