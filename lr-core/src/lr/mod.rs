@@ -440,17 +440,12 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection<'_
         changed = false;
 
         for parent_state in collection.item_sets.as_ref()[new_sets_idx..].iter() {
-            let symbols_after_dot = {
-                let mut symbol_after_dot = parent_state
-                    .items
-                    .as_ref()
-                    .iter()
-                    .filter_map(|item| item.symbol_after_dot().copied())
-                    .collect::<Vec<_>>();
-                symbol_after_dot.dedup();
-
-                symbol_after_dot.into_iter()
-            };
+            let symbols_after_dot = parent_state
+                .items
+                .as_ref()
+                .iter()
+                .filter_map(|item| item.symbol_after_dot().copied())
+                .collect::<OrderedSet<_>>();
 
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
