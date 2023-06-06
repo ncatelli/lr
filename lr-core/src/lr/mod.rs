@@ -314,8 +314,6 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                 let follow_set = {
                     let lookahead_set = [SymbolRef::Terminal(lookahead)];
                     follow(grammar_table.first_set(), &[beta, &lookahead_set])
-                        .into_iter()
-                        .collect::<Vec<_>>()
                 };
 
                 let matching_productions = grammar_table
