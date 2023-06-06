@@ -738,19 +738,21 @@ fn build_table<'a>(
             .non_terminals()
             .skip(1)
             .flat_map(|s| grammar_table.non_terminal_mapping(&s));
-        for n in nt {
+
+        let k_sets = nt.filter_map(|n| {
             let sk = goto(grammar_table, sx, SymbolRef::NonTerminal(n));
 
             // find the first set that contains all elements of sk.
-            let k = canonical_collection
+            canonical_collection
                 .item_sets
                 .as_ref()
                 .iter()
-                .position(|sx| sk.items.as_ref().starts_with(sx.items.as_ref()));
+                .position(|sx| sk.items.as_ref().starts_with(sx.items.as_ref()))
+                .map(|k| (n.as_usize(), k))
+        });
 
-            if let Some(k) = k {
-                goto_table[n.as_usize()][x] = Goto::State(k);
-            }
+        for (n, k) in k_sets {
+            goto_table[n][x] = Goto::State(k);
         }
     }
 
