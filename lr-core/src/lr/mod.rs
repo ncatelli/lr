@@ -290,14 +290,14 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
 
     let mut set = i.items;
 
-    let mut changed = true;
-    let mut last_modified_cnt = 0;
-    while changed {
-        changed = false;
-
+    // The offset into from which all sets after are new from the previous
+    // iteration.
+    let mut new_sets_idx = 0;
+    // While set is still changing.
+    while set.len() != new_sets_idx {
         // build a list of all new items and update the modified count.
-        let new_items_in_set = set.as_ref()[last_modified_cnt..].to_vec();
-        last_modified_cnt = new_items_in_set.len();
+        let new_items_in_set = set.as_ref()[new_sets_idx..].to_vec();
+        new_sets_idx = set.len();
 
         for item in new_items_in_set {
             let lookahead = item.lookahead;
@@ -326,10 +326,7 @@ fn closure<'a>(grammar_table: &'a GrammarTable, i: ItemSet<'a>) -> ItemSet<'a> {
                         .map(|lookahead| ItemRef::new(production, 0, *lookahead));
 
                     for new in new_item {
-                        let new_item_inserted = set.insert(new.clone());
-                        if new_item_inserted {
-                            changed = true;
-                        }
+                        let _ = set.insert(new.clone());
                     }
                 }
             }
@@ -431,49 +428,29 @@ fn build_canonical_collection(grammar_table: &GrammarTable) -> ItemCollection<'_
     let initial_item_set = initial_item_set(grammar_table);
     let s0 = closure(grammar_table, initial_item_set);
 
-    let mut changed = collection.insert(s0);
+    collection.insert(s0);
 
-    let mut new_states = OrderedSet::default();
-    let mut new_sets_idx = 0_usize;
+    let mut new_states_idx = 0_usize;
 
-    while changed {
-        changed = false;
+    while collection.states() != new_states_idx {
+        let new_states_in_collection = collection.item_sets.as_ref()[new_states_idx..].to_vec();
+        // bump the offset to account for only new states.
+        new_states_idx = collection.states();
 
-        for parent_state in collection.item_sets.as_ref()[new_sets_idx..].iter() {
-            let symbols_after_dot = {
-                let mut symbol_after_dot = parent_state
-                    .items
-                    .as_ref()
-                    .iter()
-                    .filter_map(|item| item.symbol_after_dot().copied())
-                    .collect::<Vec<_>>();
-                symbol_after_dot.dedup();
-
-                symbol_after_dot.into_iter()
-            };
+        for parent_state in new_states_in_collection.iter() {
+            let symbols_after_dot = parent_state
+                .items
+                .as_ref()
+                .iter()
+                .filter_map(|item| item.symbol_after_dot().copied())
+                .collect::<OrderedSet<_>>();
 
             for symbol_after_dot in symbols_after_dot {
                 let new_state = goto(grammar_table, parent_state, symbol_after_dot);
 
-                new_states.insert(new_state);
+                let _ = collection.insert(new_state);
             }
         }
-
-        // bump the offset to account for only new states.
-        new_sets_idx = collection.states();
-
-        // insert all new states
-        for new_state in new_states {
-            // if there are new states to insert, mark the collection as
-            // changing.
-            let new_state_inserted = collection.insert(new_state);
-            if new_state_inserted {
-                changed = true;
-            }
-        }
-
-        // reset the new states
-        new_states = OrderedSet::default();
     }
 
     collection
@@ -697,19 +674,6 @@ fn build_table<'a>(
 
         for i in items {
             let symbol_after_dot = i.symbol_after_dot().copied();
-            let lookahead_terminal_ref = &i.lookahead;
-            let lookahead_terminal = terminals
-                .get(lookahead_terminal_ref.as_usize())
-                .ok_or_else(|| {
-                    TableGenError::new(TableGenErrorKind::UnknownTerminal)
-                        .with_data(format!("{}", &i.lookahead))
-                })?;
-
-            let is_goal = Some(i.production.lhs)
-                == grammar_table
-                    .non_terminal_mapping(&NonTerminal::from(BuiltinNonTerminals::Goal));
-            let is_goal_acceptor =
-                is_goal && symbol_after_dot.is_none() && (*lookahead_terminal == eof_terminal);
 
             // shift is symbol is both a terminal and not the end of input.
             if let Some(SymbolRef::Terminal(a)) = symbol_after_dot {
@@ -722,7 +686,21 @@ fn build_table<'a>(
                 }
             }
 
+            let lookahead_terminal_ref = &i.lookahead;
+            let lookahead_terminal = terminals
+                .get(lookahead_terminal_ref.as_usize())
+                .ok_or_else(|| {
+                    TableGenError::new(TableGenErrorKind::UnknownTerminal)
+                        .with_data(format!("{}", &i.lookahead))
+                })?;
+
             // if it's the start action, accept
+            let is_goal = Some(i.production.lhs)
+                == grammar_table
+                    .non_terminal_mapping(&NonTerminal::from(BuiltinNonTerminals::Goal));
+            let is_goal_acceptor =
+                is_goal && symbol_after_dot.is_none() && (*lookahead_terminal == eof_terminal);
+
             if is_goal_acceptor {
                 let a = eof_terminal_ref;
 
@@ -761,19 +739,21 @@ fn build_table<'a>(
             .non_terminals()
             .skip(1)
             .flat_map(|s| grammar_table.non_terminal_mapping(&s));
-        for n in nt {
+
+        let k_sets = nt.filter_map(|n| {
             let sk = goto(grammar_table, sx, SymbolRef::NonTerminal(n));
 
             // find the first set that contains all elements of sk.
-            let k = canonical_collection
+            canonical_collection
                 .item_sets
                 .as_ref()
                 .iter()
-                .position(|sx| sk.items.as_ref().starts_with(sx.items.as_ref()));
+                .position(|sx| sk.items.as_ref().starts_with(sx.items.as_ref()))
+                .map(|k| (n.as_usize(), k))
+        });
 
-            if let Some(k) = k {
-                goto_table[n.as_usize()][x] = Goto::State(k);
-            }
+        for (n, k) in k_sets {
+            goto_table[n][x] = Goto::State(k);
         }
     }
 
