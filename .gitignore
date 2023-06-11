@@ -13,3 +13,7 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# Perf test data
+perf.data*
+flamegraph.svg
