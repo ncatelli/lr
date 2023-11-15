@@ -132,7 +132,7 @@ impl std::fmt::Display for SymbolRef {
     }
 }
 
-/// A structure representing a grammar production. Containing valid references to a
+/// A structure representing a grammar production.
 #[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProductionRef {
     /// The left-hand side symbol of a production
@@ -479,13 +479,21 @@ impl std::fmt::Display for GrammarTable {
         let non_terminals = self
             .non_terminals()
             .enumerate()
-            .map(|(id, non_terminal)| format!("{}. '{}'\n", id + 1, non_terminal))
-            .collect::<String>();
+            .map(|(idx, non_terminal)| (idx + 1, non_terminal))
+            .fold(String::new(), |mut acc, (rule_id, non_terminal)| {
+                let repr = format!("{}. '{}'\n", rule_id, non_terminal);
+                acc.push_str(&repr);
+                acc
+            });
         let terminals = self
             .terminals()
             .enumerate()
-            .map(|(id, terminal)| format!("{}. '{}'\n", id + 1, terminal))
-            .collect::<String>();
+            .map(|(idx, non_terminal)| (idx + 1, non_terminal))
+            .fold(String::new(), |mut acc, (rule_id, terminal)| {
+                let repr = format!("{}. '{}'\n", rule_id, terminal);
+                acc.push_str(&repr);
+                acc
+            });
 
         let productions = self
             .productions
@@ -493,9 +501,11 @@ impl std::fmt::Display for GrammarTable {
             .enumerate()
             // 1-indexed
             .map(|(idx, production)| (idx + 1, production))
-            .map(|(idx, production)| format!("{}. {}\n", idx, production))
-            .collect::<String>();
-
+            .fold(String::new(), |mut acc, (rule_id, production)| {
+                let repr = format!("{}. '{}'\n", rule_id, production);
+                acc.push_str(&repr);
+                acc
+            });
         write!(
             f,
             "{}\nNON-TERMINALS\n{}\nTERMINALS\n{}\nPRODUCTIONS\n{}",
@@ -853,7 +863,7 @@ fn build_first_set_ref<'a>(
         for nullable_nonterm_ref in nullable_nonterminal_refs {
             first_set.insert(nullable_nonterm_ref, epsilon_ref);
         }
-    // there should never be a case where there are nonterminal refs and no epison symbol.
+    // there should never be a case where there are nonterminal refs and no epsilon symbol.
     } else if !nullable_nonterminal_refs.is_empty() {
         unreachable!()
     }
