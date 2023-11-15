@@ -155,45 +155,46 @@ impl<'a> ItemSet<'a> {
     }
 
     fn human_readable_format(&self, grammar_table: &'a GrammarTable) -> String {
-        self.items
-            .as_ref()
-            .iter()
-            .map(|item_ref| {
-                let production_ref = item_ref.production;
+        let line_formatter = self.items.as_ref().iter().map(|item_ref| {
+            let production_ref = item_ref.production;
 
-                let dot_position = item_ref.dot_position;
-                let production = grammar_table
-                    .non_terminals()
-                    .nth(production_ref.lhs.as_usize())
-                    .unwrap();
-                let mut rhs = production_ref
-                    .rhs
-                    .iter()
-                    .filter_map(|sotr| match sotr {
-                        SymbolRef::NonTerminal(sym_ref) => grammar_table
-                            .non_terminals()
-                            .nth(sym_ref.as_usize())
-                            .map(Symbol::NonTerminal),
-                        SymbolRef::Terminal(tok_ref) => grammar_table
-                            .terminals()
-                            .nth(tok_ref.as_usize())
-                            .map(Symbol::Terminal),
-                    })
-                    .map(|sot| match sot {
-                        Symbol::NonTerminal(s) => s.to_string(),
-                        Symbol::Terminal(t) => t.to_string(),
-                    })
-                    .collect::<Vec<_>>();
-                rhs.insert(dot_position, ".".to_string());
+            let dot_position = item_ref.dot_position;
+            let production = grammar_table
+                .non_terminals()
+                .nth(production_ref.lhs.as_usize())
+                .unwrap();
+            let mut rhs = production_ref
+                .rhs
+                .iter()
+                .filter_map(|sotr| match sotr {
+                    SymbolRef::NonTerminal(sym_ref) => grammar_table
+                        .non_terminals()
+                        .nth(sym_ref.as_usize())
+                        .map(Symbol::NonTerminal),
+                    SymbolRef::Terminal(tok_ref) => grammar_table
+                        .terminals()
+                        .nth(tok_ref.as_usize())
+                        .map(Symbol::Terminal),
+                })
+                .map(|sot| match sot {
+                    Symbol::NonTerminal(s) => s.to_string(),
+                    Symbol::Terminal(t) => t.to_string(),
+                })
+                .collect::<Vec<_>>();
+            rhs.insert(dot_position, ".".to_string());
 
-                let lookahead = grammar_table
-                    .terminals()
-                    .nth(item_ref.lookahead.as_usize())
-                    .unwrap();
+            let lookahead = grammar_table
+                .terminals()
+                .nth(item_ref.lookahead.as_usize())
+                .unwrap();
 
-                format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
-            })
-            .collect::<String>()
+            format!("{} -> {} [{}]\n", &production, rhs.join(" "), lookahead)
+        });
+
+        line_formatter.fold(String::new(), |mut acc, line| {
+            acc.push_str(&line);
+            acc
+        })
     }
 }
 
@@ -391,8 +392,12 @@ impl<'a> ItemCollection<'a> {
             .as_ref()
             .iter()
             .enumerate()
-            .map(|(id, i)| format!("\nS{}:\n{}", id, &i.human_readable_format(grammar_table)))
-            .collect::<String>()
+            .fold(String::new(), |mut acc, (id, i)| {
+                let formatted_line =
+                    format!("\nS{}:\n{}", id, &i.human_readable_format(grammar_table));
+                acc.push_str(&formatted_line);
+                acc
+            })
     }
 }
 
@@ -571,8 +576,11 @@ impl LrTable {
                     .skip(1)
                     .map(|s| s.to_string()),
             )
-            .map(|t_or_s_str_repr| format!("{: >10}", t_or_s_str_repr))
-            .collect::<String>();
+            .fold(String::new(), |mut acc, t_or_s_str_repr| {
+                let formatted_symbol = format!("{: >10}", t_or_s_str_repr);
+                acc.push_str(&formatted_symbol);
+                acc
+            });
         let table_width_without_left_side_padding = row_header.len();
 
         let first_row = format!(
@@ -911,7 +919,7 @@ mod tests {
             .iter()
             .map(|state| state.len())
             .enumerate()
-            .zip(expected_productions_per_state.into_iter());
+            .zip(expected_productions_per_state);
         for ((sid, items_in_state), expected_items) in state_productions_assertion_tuples {
             assert_eq!((sid, items_in_state), (sid, expected_items))
         }
