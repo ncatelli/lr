@@ -132,7 +132,7 @@ impl std::fmt::Display for SymbolRef {
     }
 }
 
-/// A structure representing a grammar production. Containing valid references to a
+/// A structure representing a grammar production.
 #[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProductionRef {
     /// The left-hand side symbol of a production
@@ -853,7 +853,7 @@ fn build_first_set_ref<'a>(
         for nullable_nonterm_ref in nullable_nonterminal_refs {
             first_set.insert(nullable_nonterm_ref, epsilon_ref);
         }
-    // there should never be a case where there are nonterminal refs and no epison symbol.
+    // there should never be a case where there are nonterminal refs and no epsilon symbol.
     } else if !nullable_nonterminal_refs.is_empty() {
         unreachable!()
     }
