@@ -34,7 +34,7 @@ impl<'a> Terminal<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Terminal<'a> {
+impl std::fmt::Display for Terminal<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.variant {
             TerminalKind::Plus | TerminalKind::Star | TerminalKind::Eof => {
@@ -45,7 +45,7 @@ impl<'a> std::fmt::Display for Terminal<'a> {
     }
 }
 
-impl<'a> TerminalRepresentable for Terminal<'a> {
+impl TerminalRepresentable for Terminal<'_> {
     type Repr = TerminalKind;
 
     fn to_variant_repr(&self) -> Self::Repr {

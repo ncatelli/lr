@@ -965,7 +965,7 @@ mod tests {
         }
     }
 
-    impl<'a> GrammarTestCase<'a> {
+    impl GrammarTestCase<'_> {
         fn test(&self) {
             let grammar_table = load_grammar(self.grammar_table).unwrap();
             let first_sets = grammar_table.first_set();

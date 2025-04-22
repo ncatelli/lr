@@ -193,15 +193,12 @@ mod tests {
     #[test]
     fn should_generate_identity_for_all_inputs_to_no_op_hasher() {
         for i in 0..256 {
-            let mut no_op_hasher = NoOpHashBuilder.build_hasher();
             let mut default_hasher = DefaultHasher::default();
 
             i.hash(&mut default_hasher);
             let expected_hash = default_hasher.finish();
 
-            expected_hash.hash(&mut no_op_hasher);
-
-            assert_eq!(no_op_hasher.finish(), expected_hash);
+            assert_eq!(NoOpHashBuilder.hash_one(expected_hash), expected_hash);
         }
     }
 }

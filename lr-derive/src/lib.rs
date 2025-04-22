@@ -426,7 +426,7 @@ impl<'a> StateTable<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for StateTable<'a> {
+impl std::fmt::Display for StateTable<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let grammar_table = &self.reducible_grammar_table.grammar_table;
 
@@ -481,15 +481,6 @@ enum ActionMatcherState {
     Stateless,
 }
 
-/// A marker trait for representing the kind of state matching code to generate.
-trait ActionMatcherStateHandleable {}
-
-struct Stateless;
-impl ActionMatcherStateHandleable for Stateless {}
-
-struct Stateful;
-impl ActionMatcherStateHandleable for Stateful {}
-
 struct ActionMatcherCodeGen<'a> {
     matcher_kind: ActionMatcherState,
     nonterminal_identifier: &'a Ident,
@@ -516,7 +507,7 @@ impl<'a> ActionMatcherCodeGen<'a> {
     }
 }
 
-impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
+impl ToTokens for ActionMatcherCodeGen<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let nonterminal_identifier = self.nonterminal_identifier;
         let filtered_actions = self
@@ -611,7 +602,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
             .collect::<TokenStream>();
 
         let goal_reducer = match self.matcher_kind {
-            ActionMatcherState::Stateful => match &self.reducers.get(0).unwrap() {
+            ActionMatcherState::Stateful => match &self.reducers.first().unwrap() {
                 ReducerAction::Closure(ec) => {
                     quote!((#ec)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
                 }
@@ -619,7 +610,7 @@ impl<'a> ToTokens for ActionMatcherCodeGen<'a> {
                     quote!((#f)(&mut *parse_ctx.user_state, &mut parse_ctx.element_stack))
                 }
             },
-            ActionMatcherState::Stateless => match &self.reducers.get(0).unwrap() {
+            ActionMatcherState::Stateless => match &self.reducers.first().unwrap() {
                 ReducerAction::Closure(ec) => {
                     quote!((#ec)(&mut parse_ctx.element_stack))
                 }
@@ -730,7 +721,7 @@ impl<'a> GotoTableLookupCodeGen<'a> {
     }
 }
 
-impl<'a> ToTokens for GotoTableLookupCodeGen<'a> {
+impl ToTokens for GotoTableLookupCodeGen<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let per_non_terminal_gotos = self
             .goto_table
