@@ -21,7 +21,7 @@ jobs:
       - name: measure benchmarks on branch
         run: cargo bench 
       - name: upload benchmark report
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v4
         with:
           name: Benchmark report
           path: target/criterion/

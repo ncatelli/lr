@@ -1,0 +1,5 @@
+[workspace]
+publish = false # disable `cargo publish` 
+
+[changelog]
+protect_breaking_commits = true
