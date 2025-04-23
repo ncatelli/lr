@@ -49,7 +49,7 @@ pub enum Symbol<'a> {
     Terminal(Terminal<'a>),
 }
 
-impl<'a> std::fmt::Display for Symbol<'a> {
+impl std::fmt::Display for Symbol<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Symbol::NonTerminal(s) => s.fmt(f),
@@ -193,19 +193,19 @@ impl<'a> NonTerminal<'a> {
         Self(non_terminal)
     }
 }
-impl<'a> AsRef<str> for NonTerminal<'a> {
+impl AsRef<str> for NonTerminal<'_> {
     fn as_ref(&self) -> &str {
         self.0
     }
 }
 
-impl<'a> std::fmt::Display for NonTerminal<'a> {
+impl std::fmt::Display for NonTerminal<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
     }
 }
 
-impl<'a> From<BuiltinNonTerminals> for NonTerminal<'a> {
+impl From<BuiltinNonTerminals> for NonTerminal<'_> {
     fn from(val: BuiltinNonTerminals) -> Self {
         Self::new(val.as_non_terminals())
     }
@@ -227,7 +227,7 @@ impl<'a> Terminal<'a> {
     }
 }
 
-impl<'a> AsRef<str> for Terminal<'a> {
+impl AsRef<str> for Terminal<'_> {
     fn as_ref(&self) -> &str {
         self.0
     }
@@ -239,13 +239,13 @@ impl<'a> From<&'a str> for Terminal<'a> {
     }
 }
 
-impl<'a> From<BuiltinTerminals> for Terminal<'a> {
+impl From<BuiltinTerminals> for Terminal<'_> {
     fn from(val: BuiltinTerminals) -> Self {
         Terminal::new(val.as_terminal())
     }
 }
 
-impl<'a> std::fmt::Display for Terminal<'a> {
+impl std::fmt::Display for Terminal<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
     }
@@ -809,7 +809,7 @@ fn find_nullable_nonterminals<'a>(
 
             // validate that the production isn't already nullable
             if !nullable_nonterminal_productions.contains(&lhs) {
-                let first_rhs_is_terminal = production.rhs.get(0).and_then(|sotr| match sotr {
+                let first_rhs_is_terminal = production.rhs.first().and_then(|sotr| match sotr {
                     SymbolRef::NonTerminal(_) => None,
                     SymbolRef::Terminal(idx) => terminals.get(idx.as_usize()),
                 });
@@ -874,7 +874,7 @@ fn build_first_set_ref<'a>(
             let lhs_idx = production_ref.lhs;
             let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
 
-            if let Some(SymbolRef::Terminal(first_terminal)) = production_ref.rhs.get(0) {
+            if let Some(SymbolRef::Terminal(first_terminal)) = production_ref.rhs.first() {
                 // if the the first terminal in the pattern isn't epsilon, add it.
                 Some((lhs_non_terminal, first_terminal))
             } else {
@@ -896,7 +896,7 @@ fn build_first_set_ref<'a>(
             let lhs_idx = production_ref.lhs;
             let lhs_non_terminal = non_terminals[lhs_idx.as_usize()];
 
-            if let Some(SymbolRef::NonTerminal(idx)) = production_ref.rhs.get(0) {
+            if let Some(SymbolRef::NonTerminal(idx)) = production_ref.rhs.first() {
                 // get all terminals from the first non_terminal
                 let first_rhs_non_terminal = non_terminals[idx.as_usize()];
                 if first_set.union_of_sets(lhs_non_terminal, &first_rhs_non_terminal) {
